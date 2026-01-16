@@ -1,0 +1,176 @@
+# shclap Implementation Backlog
+
+## Workflow Per Task
+Each task follows this workflow:
+
+### Task Status Legend
+- `[ ]` - Available
+- `[TAKEN]` - Being worked on by an agent
+- `~~Task~~` - Completed
+
+### Git Workflow
+1. **Mark task as `[TAKEN]`** in BACKLOG.md before starting
+2. Create a feature branch (e.g., `feature/config-module`)
+3. Implement the changes
+4. Before committing: write summary and **ask user to confirm**
+5. Commit changes
+6. Push branch to origin
+7. **Ask user to review and approve**
+8. Squash and rebase before merging (one commit per feature in main)
+9. Mark completed tasks with ~~strikethrough~~ in BACKLOG.md and commit
+
+### Code Quality
+1. Implement the code
+2. Write unit tests
+3. Run `cargo fmt`
+4. Run `cargo test`
+5. Run `cargo clippy`
+
+---
+
+## Phase 0 - Project Setup
+
+### Initialize Project
+- [TAKEN] Run `cargo init`
+- [TAKEN] Initialize git repository
+- [TAKEN] Set up Cargo.toml with dependencies (locked versions)
+- [TAKEN] Create `rust-toolchain.toml` (lock to latest stable)
+- [TAKEN] Create README.md with project overview and usage examples
+- [TAKEN] Commit `Cargo.lock` to repo
+- [TAKEN] Create initial commit
+
+### Create Makefile
+- [ ] `make help` - parse `## target - description` comments and display all targets
+- [ ] `make setup-build-env` - install Rust (locked version), musl target, cargo-deb, musl-tools
+- [ ] `make build` - cargo build
+- [ ] `make release` - cargo build --release --target x86_64-unknown-linux-musl
+- [ ] `make test` - cargo test
+- [ ] `make fmt` - cargo fmt
+- [ ] `make lint` - cargo clippy
+- [ ] `make check` - fmt + lint + test
+- [ ] `make install` - install binary to system
+- [ ] `make clean` - cargo clean + remove build artifacts
+- [ ] `make deb` - build debian package
+- [ ] `make install-deb` - install the .deb package
+- [ ] `make uninstall-deb` - remove the installed .deb package
+- [ ] Every target must have a `## target - description` comment
+
+### Set Up GitHub Repository
+- [ ] Create repo on github.com/yanctab
+- [ ] Add remote origin
+- [ ] Push initial commit
+
+---
+
+## Phase 1 - Foundation (Parallel)
+
+### Config Module (`src/config.rs`)
+- [ ] Define Rust structs matching JSON schema (ArgConfig, Config)
+- [ ] Implement serde deserialization
+- [ ] Add validation (no duplicate arg names, required fields)
+- [ ] Write unit tests for config parsing
+- [ ] Run `cargo fmt && cargo test && cargo clippy`
+
+### Help Module (`src/help.rs`)
+- [ ] Generate usage line from config
+- [ ] Format argument descriptions
+- [ ] Handle --help flag detection
+- [ ] Write unit tests for help generation
+- [ ] Run `cargo fmt && cargo test && cargo clippy`
+
+### Output Module (`src/output.rs`)
+- [ ] Take parsed key-value pairs + prefix
+- [ ] Generate temp file with export statements
+- [ ] Proper escaping of values for shell safety
+- [ ] Return temp file path
+- [ ] Write unit tests for output generation
+- [ ] Run `cargo fmt && cargo test && cargo clippy`
+
+### CLI Interface (`src/main.rs`)
+- [ ] Set up clap for shclap's own args
+  - [ ] `--config=<json>` (required)
+  - [ ] `--prefix=<PREFIX>` (optional, default "SHCLAP_")
+  - [ ] `--help` flag (clap provides this)
+  - [ ] `--version` flag (clap provides this, reads from Cargo.toml)
+  - [ ] `--` separator for script args
+- [ ] Wire up module calls (stubbed initially)
+- [ ] Run `cargo fmt && cargo test && cargo clippy`
+
+---
+
+## Phase 2 - Parser
+
+### Parser Module (`src/parser.rs`)
+- [ ] Parse script args according to config spec
+- [ ] Handle short flags (-v)
+- [ ] Handle long flags (--verbose)
+- [ ] Handle options with values (-o file, --output=file, --output file)
+- [ ] Handle positional arguments
+- [ ] Return parsed values as key-value pairs
+- [ ] Write unit tests for argument parsing
+- [ ] Run `cargo fmt && cargo test && cargo clippy`
+
+---
+
+## Phase 3 - Integration & Testing
+
+### Integration
+- [ ] Wire all modules together in main.rs
+- [ ] Error handling with auto-generated help
+- [ ] Handle --help and --version for target scripts
+- [ ] Run `cargo fmt && cargo test && cargo clippy`
+
+### End-to-end Testing
+- [ ] Manual test with simple flag
+- [ ] Manual test with required option
+- [ ] Manual test with positional args
+- [ ] Manual test with combined args
+- [ ] Test error cases (missing required, invalid args)
+
+---
+
+## Phase 4 - Packaging & Distribution
+
+### Debian Package
+- [ ] Create `debian/` directory structure
+- [ ] Create `debian/control` with package metadata
+- [ ] Create `debian/rules` build script
+- [ ] Create `debian/changelog`
+- [ ] Create `debian/copyright`
+- [ ] Create man page (`man/shclap.1`)
+- [ ] Include man page in .deb package
+- [ ] Test package build with `cargo-deb`
+- [ ] Verify installation from .deb file
+- [ ] Verify man page accessible via `man shclap`
+
+---
+
+## Phase 5 - GitHub Actions
+
+### CI Pipeline (`.github/workflows/ci.yml`)
+- [ ] Trigger on: pull_request, push to main
+- [ ] Use locked Rust version from rust-toolchain.toml
+- [ ] Job: cargo fmt --check
+- [ ] Job: cargo clippy -- -D warnings
+- [ ] Job: cargo test
+- [ ] Cache cargo registry and target directory
+
+### Release Pipeline (`.github/workflows/release.yml`)
+- [ ] Trigger on: push tags `v*`
+- [ ] Install musl toolchain (x86_64-unknown-linux-musl)
+- [ ] Build static binary with musl
+- [ ] Build .deb package
+- [ ] Create GitHub Release (auto-generate notes from commits)
+- [ ] Upload artifacts: static binary + .deb package
+
+---
+
+## Final Verification
+- [ ] `make setup-build-env` installs all dependencies
+- [ ] `make check` passes (fmt + lint + test)
+- [ ] `make release` builds static musl binary
+- [ ] `make install` works
+- [ ] `make deb` produces valid .deb package
+- [ ] CI pipeline passes on PR
+- [ ] Release pipeline produces artifacts on tag push
+- [ ] Manual verification with real shell script
