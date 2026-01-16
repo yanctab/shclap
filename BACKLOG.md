@@ -31,13 +31,13 @@ Each task follows this workflow:
 ## Phase 0 - Project Setup
 
 ### Initialize Project
-- [TAKEN] Run `cargo init`
-- [TAKEN] Initialize git repository
-- [TAKEN] Set up Cargo.toml with dependencies (locked versions)
-- [TAKEN] Create `rust-toolchain.toml` (lock to latest stable)
-- [TAKEN] Create README.md with project overview and usage examples
-- [TAKEN] Commit `Cargo.lock` to repo
-- [TAKEN] Create initial commit
+- ~~Run `cargo init`~~
+- ~~Initialize git repository~~
+- ~~Set up Cargo.toml with dependencies (locked versions)~~
+- ~~Create `rust-toolchain.toml` (lock to latest stable)~~
+- ~~Create README.md with project overview and usage examples~~
+- ~~Commit `Cargo.lock` to repo~~
+- ~~Create initial commit~~
 
 ### Create Makefile
 - [ ] `make help` - parse `## target - description` comments and display all targets
@@ -56,9 +56,9 @@ Each task follows this workflow:
 - [ ] Every target must have a `## target - description` comment
 
 ### Set Up GitHub Repository
-- [ ] Create repo on github.com/yanctab
-- [ ] Add remote origin
-- [ ] Push initial commit
+- ~~Create repo on github.com/yanctab~~
+- ~~Add remote origin~~
+- ~~Push initial commit~~
 
 ---
 
