@@ -40,20 +40,20 @@ Each task follows this workflow:
 - ~~Create initial commit~~
 
 ### Create Makefile
-- [TAKEN] `make help` - parse `## target - description` comments and display all targets
-- [TAKEN] `make setup-build-env` - install Rust (locked version), musl target, cargo-deb, musl-tools
-- [TAKEN] `make build` - cargo build
-- [TAKEN] `make release` - cargo build --release --target x86_64-unknown-linux-musl
-- [TAKEN] `make test` - cargo test
-- [TAKEN] `make fmt` - cargo fmt
-- [TAKEN] `make lint` - cargo clippy
-- [TAKEN] `make check` - fmt + lint + test
-- [TAKEN] `make install` - install binary to system
-- [TAKEN] `make clean` - cargo clean + remove build artifacts
-- [TAKEN] `make deb` - build debian package
-- [TAKEN] `make install-deb` - install the .deb package
-- [TAKEN] `make uninstall-deb` - remove the installed .deb package
-- [TAKEN] Every target must have a `## target - description` comment
+- ~~`make help` - parse `## target - description` comments and display all targets~~
+- ~~`make setup-build-env` - install Rust (locked version), musl target, cargo-deb, musl-tools~~
+- ~~`make build` - cargo build~~
+- ~~`make release` - cargo build --release --target x86_64-unknown-linux-musl~~
+- ~~`make test` - cargo test~~
+- ~~`make fmt` - cargo fmt~~
+- ~~`make lint` - cargo clippy~~
+- ~~`make check` - fmt + lint + test~~
+- ~~`make install` - install binary to system~~
+- ~~`make clean` - cargo clean + remove build artifacts~~
+- ~~`make deb` - build debian package~~
+- ~~`make install-deb` - install the .deb package~~
+- ~~`make uninstall-deb` - remove the installed .deb package~~
+- ~~Every target must have a `## target - description` comment~~
 
 ### Set Up GitHub Repository
 - ~~Create repo on github.com/yanctab~~
