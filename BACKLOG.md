@@ -65,67 +65,62 @@ Each task follows this workflow:
 ## Phase 1 - Foundation (Parallel)
 
 ### Config Module (`src/config.rs`)
-- [ ] Define Rust structs matching JSON schema (ArgConfig, Config)
-- [ ] Implement serde deserialization
-- [ ] Add validation (no duplicate arg names, required fields)
-- [ ] Write unit tests for config parsing
-- [ ] Run `cargo fmt && cargo test && cargo clippy`
+- ~~Define Rust structs matching JSON schema (ArgConfig, Config)~~
+- ~~Implement serde deserialization~~
+- ~~Add validation (no duplicate arg names, required fields)~~
+- ~~Write unit tests for config parsing~~
+- ~~Run `cargo fmt && cargo test && cargo clippy`~~
 
 ### Help Module (`src/help.rs`)
-- [ ] Generate usage line from config
-- [ ] Format argument descriptions
-- [ ] Handle --help flag detection
-- [ ] Write unit tests for help generation
-- [ ] Run `cargo fmt && cargo test && cargo clippy`
+- ~~Generate usage line from config~~
+- ~~Format argument descriptions~~
+- ~~Handle --help flag detection~~
+- ~~Write unit tests for help generation~~
+- ~~Run `cargo fmt && cargo test && cargo clippy`~~
 
 ### Output Module (`src/output.rs`)
-- [ ] Take parsed key-value pairs + prefix
-- [ ] Generate temp file with export statements
-- [ ] Proper escaping of values for shell safety
-- [ ] Return temp file path
-- [ ] Write unit tests for output generation
-- [ ] Run `cargo fmt && cargo test && cargo clippy`
+- ~~Take parsed key-value pairs + prefix~~
+- ~~Generate temp file with export statements~~
+- ~~Proper escaping of values for shell safety~~
+- ~~Return temp file path~~
+- ~~Write unit tests for output generation~~
+- ~~Run `cargo fmt && cargo test && cargo clippy`~~
 
 ### CLI Interface (`src/main.rs`)
-- [ ] Set up clap for shclap's own args
-  - [ ] `--config=<json>` (required)
-  - [ ] `--prefix=<PREFIX>` (optional, default "SHCLAP_")
-  - [ ] `--help` flag (clap provides this)
-  - [ ] `--version` flag (clap provides this, reads from Cargo.toml)
-  - [ ] `--` separator for script args
-- [ ] Wire up module calls (stubbed initially)
-- [ ] Run `cargo fmt && cargo test && cargo clippy`
+- ~~Set up clap for shclap's own args~~
+  - ~~`--config=<json>` (required)~~
+  - ~~`--prefix=<PREFIX>` (optional, default "SHCLAP_")~~
+  - ~~`--help` flag (clap provides this)~~
+  - ~~`--version` flag (clap provides this, reads from Cargo.toml)~~
+  - ~~`--` separator for script args~~
+- ~~Wire up module calls (stubbed initially)~~
+- ~~Run `cargo fmt && cargo test && cargo clippy`~~
 
 ---
 
 ## Phase 2 - Parser
 
 ### Parser Module (`src/parser.rs`)
-- [ ] Parse script args according to config spec
-- [ ] Handle short flags (-v)
-- [ ] Handle long flags (--verbose)
-- [ ] Handle options with values (-o file, --output=file, --output file)
-- [ ] Handle positional arguments
-- [ ] Return parsed values as key-value pairs
-- [ ] Write unit tests for argument parsing
-- [ ] Run `cargo fmt && cargo test && cargo clippy`
+- ~~Parse script args according to config spec~~
+- ~~Handle short flags (-v)~~
+- ~~Handle long flags (--verbose)~~
+- ~~Handle options with values (-o file, --output=file, --output file)~~
+- ~~Handle positional arguments~~
+- ~~Return parsed values as key-value pairs~~
+- ~~Write unit tests for argument parsing~~
+- ~~Run `cargo fmt && cargo test && cargo clippy`~~
 
 ---
 
-## Phase 3 - Integration & Testing
+## Phase 3 - Subcommand Refactor
 
-### Integration
-- [ ] Wire all modules together in main.rs
-- [ ] Error handling with auto-generated help
-- [ ] Handle --help and --version for target scripts
-- [ ] Run `cargo fmt && cargo test && cargo clippy`
-
-### End-to-end Testing
-- [ ] Manual test with simple flag
-- [ ] Manual test with required option
-- [ ] Manual test with positional args
-- [ ] Manual test with combined args
-- [ ] Test error cases (missing required, invalid args)
+### Refactor CLI to use subcommands
+- ~~Replace flat CLI with explicit subcommands (parse, help, version)~~
+- ~~`shclap parse --config=<JSON> [--prefix=<PREFIX>] -- <ARGS>...`~~
+- ~~`shclap help --config=<JSON>`~~
+- ~~`shclap version --config=<JSON>`~~
+- ~~Update all CLI tests to use subcommand format~~
+- ~~Run `cargo fmt && cargo test && cargo clippy`~~
 
 ---
 
