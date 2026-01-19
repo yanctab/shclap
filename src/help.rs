@@ -174,6 +174,7 @@ mod tests {
         args: Vec<ArgConfig>,
     ) -> Config {
         Config {
+            schema_version: 1,
             name: name.to_string(),
             description: description.map(|s| s.to_string()),
             version: version.map(|s| s.to_string()),

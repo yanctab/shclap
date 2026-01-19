@@ -2,7 +2,10 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use shclap::{generate_help, generate_output, generate_version, parse_args, Config};
+use shclap::{
+    generate_error_output, generate_help, generate_help_output, generate_output, generate_version,
+    generate_version_output, parse_args, Config, ParseOutcome,
+};
 
 /// Clap-style argument parsing for shell scripts.
 #[derive(Parser, Debug)]
@@ -53,16 +56,44 @@ fn main() -> Result<()> {
             prefix,
             args,
         } => {
-            let cfg = Config::from_json(&config).context("failed to parse config JSON")?;
-            cfg.validate().context("invalid config")?;
+            // Handle config parsing errors
+            let cfg = match Config::from_json(&config) {
+                Ok(c) => c,
+                Err(e) => {
+                    return output_error(&e.to_string());
+                }
+            };
+
+            // Handle validation errors
+            if let Err(e) = cfg.validate() {
+                return output_error(&e.to_string());
+            }
 
             let effective_prefix = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
 
-            let parsed = parse_args(&cfg, &args).context("failed to parse arguments")?;
-            let path = generate_output(&parsed, effective_prefix)
-                .context("failed to generate output file")?;
-
-            println!("{}", path.display());
+            // Handle parse result
+            match parse_args(&cfg, &args) {
+                Ok(ParseOutcome::Success(parsed)) => {
+                    let path = generate_output(&parsed, effective_prefix)
+                        .context("failed to generate output file")?;
+                    println!("{}", path.display());
+                }
+                Ok(ParseOutcome::Help) => {
+                    let help_text = generate_help(&cfg);
+                    let path = generate_help_output(&help_text)
+                        .context("failed to generate help output file")?;
+                    println!("{}", path.display());
+                }
+                Ok(ParseOutcome::Version) => {
+                    let version_text = generate_version(&cfg);
+                    let path = generate_version_output(&version_text)
+                        .context("failed to generate version output file")?;
+                    println!("{}", path.display());
+                }
+                Err(e) => {
+                    return output_error(&e.to_string());
+                }
+            }
         }
         Commands::Help { config } => {
             let cfg = Config::from_json(&config).context("failed to parse config JSON")?;
@@ -75,6 +106,22 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Output an error file path and return Ok.
+/// Falls back to stderr + exit 1 if file creation fails.
+fn output_error(message: &str) -> Result<()> {
+    match generate_error_output(message) {
+        Ok(path) => {
+            println!("{}", path.display());
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("shclap: {}", message);
+            eprintln!("shclap: also failed to create error output file: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 #[cfg(test)]
