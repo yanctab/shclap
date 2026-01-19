@@ -3,6 +3,9 @@
 use serde::Deserialize;
 use thiserror::Error;
 
+/// The currently supported schema version.
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
 /// Errors that can occur during config parsing and validation.
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -17,6 +20,9 @@ pub enum ConfigError {
 
     #[error("argument '{0}' has no short or long option and is not positional")]
     NoOptionSpecified(String),
+
+    #[error("unsupported schema version {0} (supported: 1)")]
+    UnsupportedSchemaVersion(u32),
 }
 
 /// The type of argument.
@@ -52,9 +58,16 @@ pub struct ArgConfig {
     pub help: Option<String>,
 }
 
+fn default_schema_version() -> u32 {
+    1
+}
+
 /// Top-level configuration for a script.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
+    /// Schema version for the config format (default: 1)
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
     /// Name of the script
     pub name: String,
     /// Description of the script
@@ -78,6 +91,11 @@ impl Config {
     /// Validate the configuration.
     pub fn validate(&self) -> Result<(), ConfigError> {
         use std::collections::HashSet;
+
+        // Validate schema version
+        if self.schema_version != CURRENT_SCHEMA_VERSION {
+            return Err(ConfigError::UnsupportedSchemaVersion(self.schema_version));
+        }
 
         let mut names = HashSet::new();
 
@@ -267,5 +285,32 @@ mod tests {
         let json_without_prefix = r#"{"name": "test"}"#;
         let config = Config::from_json(json_without_prefix).unwrap();
         assert_eq!(config.effective_prefix(), "SHCLAP_");
+    }
+
+    #[test]
+    fn test_schema_version_defaults_to_1() {
+        let json = r#"{"name": "test"}"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.schema_version, 1);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_schema_version_explicit() {
+        let json = r#"{"schema_version": 1, "name": "test"}"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.schema_version, 1);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_error_on_unsupported_schema_version() {
+        let json = r#"{"schema_version": 99, "name": "test"}"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(
+            result,
+            Err(ConfigError::UnsupportedSchemaVersion(99))
+        ));
     }
 }

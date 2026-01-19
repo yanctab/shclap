@@ -20,13 +20,42 @@ pub enum ParseError {
     UnexpectedPositional(String),
 }
 
-/// Result of parsing arguments.
+/// Outcome of parsing arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseOutcome {
+    /// Successfully parsed arguments with variable values.
+    Success(HashMap<String, String>),
+    /// User requested help (-h or --help).
+    Help,
+    /// User requested version (-V or --version).
+    Version,
+}
+
+/// Result of parsing arguments (legacy type alias).
 pub type ParseResult = Result<HashMap<String, String>, ParseError>;
 
 /// Parse command-line arguments according to the config.
-pub fn parse_args(config: &Config, args: &[String]) -> ParseResult {
+///
+/// Returns `ParseOutcome::Help` if -h/--help is found anywhere in args.
+/// Returns `ParseOutcome::Version` if -V/--version is found (and no help flag).
+/// Otherwise returns `ParseOutcome::Success` with parsed values or an error.
+pub fn parse_args(config: &Config, args: &[String]) -> Result<ParseOutcome, ParseError> {
+    // Check for help/version flags first (anywhere in args)
+    for arg in args {
+        match arg.as_str() {
+            "-h" | "--help" => return Ok(ParseOutcome::Help),
+            _ => {}
+        }
+    }
+    for arg in args {
+        match arg.as_str() {
+            "-V" | "--version" => return Ok(ParseOutcome::Version),
+            _ => {}
+        }
+    }
+
     let mut parser = Parser::new(config);
-    parser.parse(args)
+    parser.parse(args).map(ParseOutcome::Success)
 }
 
 /// Internal parser state.
@@ -226,6 +255,13 @@ mod tests {
         s.iter().map(|s| s.to_string()).collect()
     }
 
+    fn unwrap_success(outcome: ParseOutcome) -> HashMap<String, String> {
+        match outcome {
+            ParseOutcome::Success(map) => map,
+            other => panic!("Expected Success, got {:?}", other),
+        }
+    }
+
     #[test]
     fn test_parse_flag_long() {
         let config = parse_config(
@@ -233,7 +269,7 @@ mod tests {
                 {"name":"verbose","long":"verbose","type":"flag"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["--verbose"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["--verbose"])).unwrap());
         assert_eq!(result.get("verbose"), Some(&"true".to_string()));
     }
 
@@ -244,7 +280,7 @@ mod tests {
                 {"name":"verbose","short":"v","type":"flag"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["-v"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["-v"])).unwrap());
         assert_eq!(result.get("verbose"), Some(&"true".to_string()));
     }
 
@@ -255,7 +291,7 @@ mod tests {
                 {"name":"verbose","short":"v","type":"flag"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&[])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&[])).unwrap());
         assert_eq!(result.get("verbose"), Some(&"false".to_string()));
     }
 
@@ -268,7 +304,7 @@ mod tests {
                 {"name":"c","short":"c","type":"flag"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["-abc"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["-abc"])).unwrap());
         assert_eq!(result.get("a"), Some(&"true".to_string()));
         assert_eq!(result.get("b"), Some(&"true".to_string()));
         assert_eq!(result.get("c"), Some(&"true".to_string()));
@@ -281,7 +317,7 @@ mod tests {
                 {"name":"output","long":"output","type":"option"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["--output", "file.txt"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["--output", "file.txt"])).unwrap());
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
 
@@ -292,7 +328,7 @@ mod tests {
                 {"name":"output","long":"output","type":"option"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["--output=file.txt"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["--output=file.txt"])).unwrap());
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
 
@@ -303,7 +339,7 @@ mod tests {
                 {"name":"output","short":"o","type":"option"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["-o", "file.txt"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["-o", "file.txt"])).unwrap());
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
 
@@ -314,7 +350,7 @@ mod tests {
                 {"name":"output","short":"o","type":"option"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["-ofile.txt"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["-ofile.txt"])).unwrap());
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
 
@@ -325,7 +361,7 @@ mod tests {
                 {"name":"input","type":"positional"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["input.txt"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["input.txt"])).unwrap());
         assert_eq!(result.get("input"), Some(&"input.txt".to_string()));
     }
 
@@ -337,7 +373,7 @@ mod tests {
                 {"name":"output","type":"positional"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["in.txt", "out.txt"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["in.txt", "out.txt"])).unwrap());
         assert_eq!(result.get("input"), Some(&"in.txt".to_string()));
         assert_eq!(result.get("output"), Some(&"out.txt".to_string()));
     }
@@ -351,7 +387,9 @@ mod tests {
                 {"name":"input","type":"positional"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["-v", "--output", "out.txt", "in.txt"])).unwrap();
+        let result = unwrap_success(
+            parse_args(&config, &args(&["-v", "--output", "out.txt", "in.txt"])).unwrap(),
+        );
         assert_eq!(result.get("verbose"), Some(&"true".to_string()));
         assert_eq!(result.get("output"), Some(&"out.txt".to_string()));
         assert_eq!(result.get("input"), Some(&"in.txt".to_string()));
@@ -366,7 +404,7 @@ mod tests {
             ]}"#,
         );
         // After --, -v should be treated as positional
-        let result = parse_args(&config, &args(&["--", "-v"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["--", "-v"])).unwrap());
         assert_eq!(result.get("verbose"), Some(&"false".to_string()));
         assert_eq!(result.get("input"), Some(&"-v".to_string()));
     }
@@ -378,7 +416,7 @@ mod tests {
                 {"name":"output","long":"output","type":"option","default":"out.txt"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&[])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&[])).unwrap());
         assert_eq!(result.get("output"), Some(&"out.txt".to_string()));
     }
 
@@ -389,7 +427,8 @@ mod tests {
                 {"name":"output","long":"output","type":"option","default":"default.txt"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["--output", "custom.txt"])).unwrap();
+        let result =
+            unwrap_success(parse_args(&config, &args(&["--output", "custom.txt"])).unwrap());
         assert_eq!(result.get("output"), Some(&"custom.txt".to_string()));
     }
 
@@ -438,7 +477,7 @@ mod tests {
             ]}"#,
         );
         // -vo should set verbose=true and read next arg as output value
-        let result = parse_args(&config, &args(&["-vo", "file.txt"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["-vo", "file.txt"])).unwrap());
         assert_eq!(result.get("verbose"), Some(&"true".to_string()));
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
@@ -452,7 +491,7 @@ mod tests {
             ]}"#,
         );
         // -vofile.txt: v=true, o=file.txt
-        let result = parse_args(&config, &args(&["-vofile.txt"])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["-vofile.txt"])).unwrap());
         assert_eq!(result.get("verbose"), Some(&"true".to_string()));
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
@@ -464,7 +503,8 @@ mod tests {
                 {"name":"msg","long":"msg","type":"option"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["--msg", "hello $USER!"])).unwrap();
+        let result =
+            unwrap_success(parse_args(&config, &args(&["--msg", "hello $USER!"])).unwrap());
         assert_eq!(result.get("msg"), Some(&"hello $USER!".to_string()));
     }
 
@@ -475,7 +515,7 @@ mod tests {
                 {"name":"value","long":"value","type":"option"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["--value", ""])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["--value", ""])).unwrap());
         assert_eq!(result.get("value"), Some(&"".to_string()));
     }
 
@@ -486,7 +526,7 @@ mod tests {
                 {"name":"value","long":"value","type":"option"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["--value="])).unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["--value="])).unwrap());
         assert_eq!(result.get("value"), Some(&"".to_string()));
     }
 
@@ -498,8 +538,66 @@ mod tests {
                 {"name":"input","type":"positional"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["input.txt", "-o", "output.txt"])).unwrap();
+        let result =
+            unwrap_success(parse_args(&config, &args(&["input.txt", "-o", "output.txt"])).unwrap());
         assert_eq!(result.get("input"), Some(&"input.txt".to_string()));
         assert_eq!(result.get("output"), Some(&"output.txt".to_string()));
+    }
+
+    #[test]
+    fn test_help_flag_long() {
+        let config = parse_config(r#"{"name":"test"}"#);
+        let result = parse_args(&config, &args(&["--help"])).unwrap();
+        assert_eq!(result, ParseOutcome::Help);
+    }
+
+    #[test]
+    fn test_help_flag_short() {
+        let config = parse_config(r#"{"name":"test"}"#);
+        let result = parse_args(&config, &args(&["-h"])).unwrap();
+        assert_eq!(result, ParseOutcome::Help);
+    }
+
+    #[test]
+    fn test_version_flag_long() {
+        let config = parse_config(r#"{"name":"test"}"#);
+        let result = parse_args(&config, &args(&["--version"])).unwrap();
+        assert_eq!(result, ParseOutcome::Version);
+    }
+
+    #[test]
+    fn test_version_flag_short() {
+        let config = parse_config(r#"{"name":"test"}"#);
+        let result = parse_args(&config, &args(&["-V"])).unwrap();
+        assert_eq!(result, ParseOutcome::Version);
+    }
+
+    #[test]
+    fn test_help_takes_precedence_over_version() {
+        let config = parse_config(r#"{"name":"test"}"#);
+        let result = parse_args(&config, &args(&["--version", "--help"])).unwrap();
+        assert_eq!(result, ParseOutcome::Help);
+    }
+
+    #[test]
+    fn test_help_anywhere_in_args() {
+        let config = parse_config(
+            r#"{"name":"test","args":[
+                {"name":"verbose","short":"v","type":"flag"}
+            ]}"#,
+        );
+        let result = parse_args(&config, &args(&["-v", "--help"])).unwrap();
+        assert_eq!(result, ParseOutcome::Help);
+    }
+
+    #[test]
+    fn test_version_anywhere_in_args() {
+        let config = parse_config(
+            r#"{"name":"test","args":[
+                {"name":"verbose","short":"v","type":"flag"}
+            ]}"#,
+        );
+        let result = parse_args(&config, &args(&["-v", "--version"])).unwrap();
+        assert_eq!(result, ParseOutcome::Version);
     }
 }
