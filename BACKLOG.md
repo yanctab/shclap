@@ -156,6 +156,28 @@ Each task follows this workflow:
 
 ---
 
+## Phase 3.6 - Integration Tests
+
+### Shell Integration Test Script (`tests/integration.sh`)
+- ~~Create test harness with pass/fail reporting~~
+- ~~Test flag parsing (short, long, combined)~~
+- ~~Test option parsing (space, equals, attached, defaults)~~
+- ~~Test positional arguments (single, multiple)~~
+- ~~Test mixed arguments (flags + options + positionals)~~
+- ~~Test custom prefix (config and CLI override)~~
+- ~~Test help flag detection (-h, --help, precedence)~~
+- ~~Test version flag detection (-V, --version)~~
+- ~~Test error handling (unknown options, invalid JSON, missing required, schema version)~~
+- ~~Test special characters in values~~
+- ~~Test double-dash separator~~
+
+### Update Makefile Test Targets
+- ~~`make test` - runs both unit and integration tests~~
+- ~~`make unit-test` - runs cargo test only~~
+- ~~`make integration-test` - runs shell integration tests~~
+
+---
+
 ## Phase 4 - Packaging & Distribution
 
 ### Debian Package
