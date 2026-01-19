@@ -6,7 +6,7 @@ INSTALL_PATH := /usr/local/bin
 MUSL_TARGET := x86_64-unknown-linux-musl
 RUST_VERSION := 1.81.0
 
-.PHONY: help setup-build-env build release test fmt lint check install uninstall clean deb install-deb uninstall-deb
+.PHONY: help setup-build-env build release test unit-test integration-test fmt lint check install uninstall clean deb install-deb uninstall-deb
 
 .DEFAULT_GOAL := help
 
@@ -36,9 +36,16 @@ build:
 release:
 	$(CARGO) build --release --target $(MUSL_TARGET)
 
-## test - Run all tests
-test:
+## test - Run all tests (unit + integration)
+test: unit-test integration-test
+
+## unit-test - Run Rust unit tests
+unit-test:
 	$(CARGO) test
+
+## integration-test - Run shell integration tests
+integration-test: build
+	./tests/integration.sh
 
 ## fmt - Format code with rustfmt
 fmt:
