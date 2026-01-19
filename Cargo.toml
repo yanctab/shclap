@@ -21,3 +21,18 @@ thiserror = "=1.0.56"
 strip = true
 lto = true
 codegen-units = 1
+
+[package.metadata.deb]
+maintainer = "yanctab <yanctab@users.noreply.github.com>"
+copyright = "2026, yanctab"
+license-file = ["LICENSE", "0"]
+extended-description = """\
+shclap brings the power of clap-style argument parsing to shell scripts. \
+Define your CLI interface via JSON configuration, and shclap validates \
+arguments and outputs a sourceable file with environment variables."""
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/shclap", "usr/bin/", "755"],
+    ["man/shclap.1", "usr/share/man/man1/", "644"],
+]
