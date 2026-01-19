@@ -181,14 +181,14 @@ Each task follows this workflow:
 ## Phase 4 - Packaging & Distribution
 
 ### Debian Package
-- [ ] Create `debian/` directory structure
-- [ ] Create `debian/control` with package metadata
-- [ ] Create `debian/rules` build script
-- [ ] Create `debian/changelog`
-- [ ] Create `debian/copyright`
-- [ ] Create man page (`man/shclap.1`)
-- [ ] Include man page in .deb package
-- [ ] Test package build with `cargo-deb`
+- ~~Create `debian/` directory structure~~
+- ~~Create `debian/control` with package metadata~~
+- ~~Create `debian/rules` build script~~
+- ~~Create `debian/changelog`~~
+- ~~Create `debian/copyright`~~
+- ~~Create man page (`man/shclap.1`)~~
+- ~~Include man page in .deb package~~
+- ~~Test package build with `cargo-deb`~~
 - [ ] Verify installation from .deb file
 - [ ] Verify man page accessible via `man shclap`
 
