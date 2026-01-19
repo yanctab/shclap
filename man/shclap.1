@@ -1,0 +1,232 @@
+.TH SHCLAP 1 "January 2026" "shclap 0.1.0" "User Commands"
+.SH NAME
+shclap \- clap-style argument parsing for shell scripts
+.SH SYNOPSIS
+.B shclap parse
+.RB [ \-\-prefix
+.IR PREFIX ]
+.B \-\-config
+.I JSON
+.B \-\-
+.IR ARGS ...
+.br
+.B shclap help
+.B \-\-config
+.I JSON
+.br
+.B shclap version
+.B \-\-config
+.I JSON
+.SH DESCRIPTION
+.B shclap
+brings clap-style argument parsing to shell scripts. Define your CLI
+interface via JSON configuration, and shclap validates arguments and
+outputs a sourceable file with environment variables.
+.PP
+The typical usage pattern is:
+.PP
+.RS
+.nf
+source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+.fi
+.RE
+.PP
+After sourcing, parsed arguments are available as environment variables
+with the configured prefix (default: SHCLAP_).
+.SH COMMANDS
+.TP
+.B parse
+Parse script arguments and output a temp file path. The temp file contains
+shell export statements that can be sourced. On error or when \-\-help/\-\-version
+is requested, the temp file contains appropriate output and exit commands.
+.TP
+.B help
+Print the help text for the target script (as defined in the JSON config)
+directly to stdout.
+.TP
+.B version
+Print the version of the target script (as defined in the JSON config)
+directly to stdout.
+.SH OPTIONS
+.SS "Parse Command Options"
+.TP
+.BI \-\-config " JSON"
+JSON configuration string defining the script's arguments. Required.
+.TP
+.BI \-\-prefix " PREFIX"
+Environment variable prefix. Overrides the prefix specified in config.
+Default: SHCLAP_
+.TP
+.B \-\-
+Separator between shclap options and the script arguments to parse.
+.SS "Global Options"
+.TP
+.BR \-h ", " \-\-help
+Print help information.
+.TP
+.BR \-V ", " \-\-version
+Print shclap version.
+.SH JSON CONFIGURATION
+The JSON configuration defines the script's command-line interface:
+.PP
+.RS
+.nf
+{
+  "schema_version": 1,
+  "name": "myscript",
+  "description": "My script description",
+  "version": "1.0.0",
+  "prefix": "MYAPP_",
+  "args": [
+    {
+      "name": "verbose",
+      "short": "v",
+      "long": "verbose",
+      "type": "flag",
+      "help": "Enable verbose output"
+    },
+    {
+      "name": "output",
+      "short": "o",
+      "long": "output",
+      "type": "option",
+      "required": true,
+      "help": "Output file"
+    },
+    {
+      "name": "input",
+      "type": "positional",
+      "required": true,
+      "help": "Input file"
+    }
+  ]
+}
+.fi
+.RE
+.SS "Top-Level Fields"
+.TP
+.B schema_version
+Schema version number. Optional, defaults to 1. Currently only version 1
+is supported.
+.TP
+.B name
+Script name. Required. Used in help output.
+.TP
+.B description
+Script description. Optional. Shown in help output.
+.TP
+.B version
+Script version. Optional. Shown with \-V/\-\-version.
+.TP
+.B prefix
+Environment variable prefix. Optional. Default: "SHCLAP_"
+.TP
+.B args
+Array of argument definitions. Optional.
+.SS "Argument Fields"
+.TP
+.B name
+Argument name. Required. Becomes the environment variable name
+(uppercased, with the prefix).
+.TP
+.B short
+Single-character short option (e.g., "v" for \-v). Optional.
+.TP
+.B long
+Long option name (e.g., "verbose" for \-\-verbose). Optional.
+.TP
+.B type
+Argument type. Required. One of:
+.RS
+.TP
+.B flag
+Boolean switch. Sets variable to "true" or "false".
+.TP
+.B option
+Takes a value. Supports \-o value, \-ovalue, \-\-opt value, \-\-opt=value.
+.TP
+.B positional
+Positional argument (no dash prefix).
+.RE
+.TP
+.B required
+Whether the argument is required. Optional, default: false.
+.TP
+.B default
+Default value if not provided. Optional.
+.TP
+.B help
+Help text for this argument. Optional.
+.SH BUILT-IN FLAGS
+The following flags are automatically handled by shclap during parsing:
+.TP
+.BR \-h ", " \-\-help
+Display help for the target script and exit 0.
+.TP
+.BR \-V ", " \-\-version
+Display version of the target script and exit 0.
+.PP
+These flags take precedence over normal argument parsing. If \-\-help
+is present anywhere in the arguments, help is shown. If \-\-version is
+present (and \-\-help is not), version is shown.
+.SH EXIT STATUS
+The
+.B shclap parse
+command always outputs a temp file path to stdout. The sourced file
+handles the actual exit:
+.TP
+.B 0
+Successful parse, or \-\-help/\-\-version requested.
+.TP
+.B 1
+Parse error (unknown option, missing required argument, etc.).
+.SH EXAMPLES
+.SS "Basic Script"
+.PP
+.RS
+.nf
+#!/bin/bash
+CONFIG='{
+  "name": "greet",
+  "version": "1.0.0",
+  "args": [
+    {"name": "name", "type": "positional", "required": true, "help": "Name to greet"}
+  ]
+}'
+source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+echo "Hello, $SHCLAP_NAME!"
+.fi
+.RE
+.SS "With Flags and Options"
+.PP
+.RS
+.nf
+#!/bin/bash
+CONFIG='{
+  "name": "backup",
+  "description": "Backup files to destination",
+  "version": "2.0.0",
+  "prefix": "BACKUP_",
+  "args": [
+    {"name": "verbose", "short": "v", "type": "flag", "help": "Verbose output"},
+    {"name": "compress", "short": "c", "type": "flag", "help": "Compress backup"},
+    {"name": "dest", "short": "d", "long": "destination", "type": "option",
+     "required": true, "help": "Destination directory"},
+    {"name": "source", "type": "positional", "required": true, "help": "Source path"}
+  ]
+}'
+source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+
+[[ "$BACKUP_VERBOSE" == "true" ]] && echo "Backing up $BACKUP_SOURCE to $BACKUP_DEST"
+# ... rest of script
+.fi
+.RE
+.SH SEE ALSO
+.BR bash (1),
+.BR getopt (1)
+.SH BUGS
+Report bugs at: https://github.com/yanctab/shclap/issues
+.SH AUTHOR
+Written by yanctab.
+.SH COPYRIGHT
+Copyright \(co 2026 yanctab. License: Apache-2.0.

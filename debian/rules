@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --target x86_64-unknown-linux-musl
+
+override_dh_auto_install:
+	install -D -m 755 target/x86_64-unknown-linux-musl/release/shclap \
+		debian/shclap/usr/bin/shclap
+	install -D -m 644 man/shclap.1 \
+		debian/shclap/usr/share/man/man1/shclap.1
+
+override_dh_auto_test:
+	cargo test
+
+override_dh_auto_clean:
+	cargo clean

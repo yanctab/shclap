@@ -1,0 +1,25 @@
+Source: shclap
+Section: utils
+Priority: optional
+Maintainer: yanctab <yanctab@users.noreply.github.com>
+Build-Depends: debhelper (>= 11), cargo, rustc
+Standards-Version: 4.5.0
+Homepage: https://github.com/yanctab/shclap
+Vcs-Git: https://github.com/yanctab/shclap.git
+Vcs-Browser: https://github.com/yanctab/shclap
+
+Package: shclap
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Clap-style argument parsing for shell scripts
+ shclap brings the power of clap-style argument parsing to shell scripts.
+ Define your CLI interface via JSON configuration, and shclap validates
+ arguments and outputs a sourceable file with environment variables.
+ .
+ Features:
+  - Short and long flags (-v, --verbose)
+  - Options with values (-o file, --output=file)
+  - Positional arguments
+  - Required arguments and default values
+  - Auto-generated help and version output
+  - Custom environment variable prefix

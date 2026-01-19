@@ -1,0 +1,10 @@
+shclap (0.1.0-1) unstable; urgency=medium
+
+  * Initial release
+  * Clap-style argument parsing for shell scripts
+  * Support for flags, options, and positional arguments
+  * JSON configuration format
+  * Auto-generated help and version output
+  * Custom environment variable prefix support
+
+ -- yanctab <yanctab@users.noreply.github.com>  Sun, 19 Jan 2026 22:00:00 +0100
