@@ -124,6 +124,38 @@ Each task follows this workflow:
 
 ---
 
+## Phase 3.5 - Error Handling & Help/Version via Output File
+
+### Config Schema Version
+- ~~Add `schema_version` field to Config (defaults to 1)~~
+- ~~Add validation for supported schema versions~~
+- ~~Add `CURRENT_SCHEMA_VERSION` constant~~
+- ~~Write unit tests for schema version handling~~
+
+### Parser Help/Version Detection
+- ~~Add `ParseOutcome` enum (Success, Help, Version)~~
+- ~~Detect `-h`/`--help` flags before parsing (returns Help)~~
+- ~~Detect `-V`/`--version` flags before parsing (returns Version)~~
+- ~~Help takes precedence over version~~
+- ~~Write unit tests for help/version detection~~
+
+### Output File Generation for Errors/Help/Version
+- ~~Add `generate_error_output()` - creates file with `echo ... >&2; exit 1`~~
+- ~~Add `generate_help_output()` - creates file with heredoc + `exit 0`~~
+- ~~Add `generate_version_output()` - creates file with heredoc + `exit 0`~~
+- ~~Write unit tests for all new output functions~~
+
+### Update CLI to Always Output File Path
+- ~~Handle config parsing errors via output file~~
+- ~~Handle validation errors via output file~~
+- ~~Handle parse errors via output file~~
+- ~~Handle Help outcome via output file~~
+- ~~Handle Version outcome via output file~~
+- ~~Fallback to stderr if temp file creation fails~~
+- ~~Run `cargo fmt && cargo test && cargo clippy`~~
+
+---
+
 ## Phase 4 - Packaging & Distribution
 
 ### Debian Package
