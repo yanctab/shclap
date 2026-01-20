@@ -1,6 +1,6 @@
 //! Help and version text generation for target scripts using Clap.
 
-use crate::config::{ArgConfig, ArgType, Config};
+use crate::config::{ArgConfig, ArgType, Config, SubcommandConfig};
 use clap::{Arg, ArgAction, Command};
 
 /// Build a Clap Command from a Config (for help/version generation).
@@ -26,6 +26,38 @@ fn build_command(config: &Config) -> Command {
         cmd = cmd.arg(arg);
     }
 
+    // Add subcommands (schema v2)
+    for subcmd_config in &config.subcommands {
+        let subcmd = build_subcommand(subcmd_config);
+        cmd = cmd.subcommand(subcmd);
+    }
+
+    // Require subcommand if any defined
+    if !config.subcommands.is_empty() {
+        cmd = cmd.subcommand_required(true);
+        cmd = cmd.arg_required_else_help(true);
+    }
+
+    cmd
+}
+
+/// Build a Clap Command for a subcommand config.
+fn build_subcommand(config: &SubcommandConfig) -> Command {
+    let mut cmd = Command::new(config.name.clone());
+
+    if let Some(ref help) = config.help {
+        cmd = cmd.about(help.clone());
+    }
+
+    // Track positional index for ordering
+    let mut positional_index = 1usize;
+
+    // Add arguments
+    for arg_config in &config.args {
+        let arg = build_arg(arg_config, &mut positional_index);
+        cmd = cmd.arg(arg);
+    }
+
     cmd
 }
 
@@ -35,7 +67,12 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
 
     match arg_config.arg_type {
         ArgType::Flag => {
-            arg = arg.action(ArgAction::SetTrue);
+            // For flags, use Count if multiple, SetTrue otherwise
+            if arg_config.multiple {
+                arg = arg.action(ArgAction::Count);
+            } else {
+                arg = arg.action(ArgAction::SetTrue);
+            }
 
             if let Some(short) = arg_config.short {
                 arg = arg.short(short);
@@ -46,7 +83,12 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
             }
         }
         ArgType::Option => {
-            arg = arg.action(ArgAction::Set);
+            // For options, use Append if multiple, Set otherwise
+            if arg_config.multiple {
+                arg = arg.action(ArgAction::Append);
+            } else {
+                arg = arg.action(ArgAction::Set);
+            }
 
             if let Some(short) = arg_config.short {
                 arg = arg.short(short);
@@ -61,6 +103,11 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
         ArgType::Positional => {
             arg = arg.index(*positional_index);
             *positional_index += 1;
+
+            // For multiple positionals
+            if arg_config.multiple {
+                arg = arg.action(ArgAction::Append);
+            }
         }
     }
 
@@ -76,7 +123,57 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
         arg = arg.help(help.clone());
     }
 
+    // Schema v2: Environment variable fallback
+    if let Some(ref env_var) = arg_config.env {
+        arg = arg.env(env_var);
+    }
+
+    // Schema v2: num_args range
+    if let Some(ref num_args) = arg_config.num_args {
+        if let Some(range) = parse_num_args_range(num_args) {
+            arg = arg.num_args(range);
+        }
+    }
+
+    // Schema v2: Value delimiter
+    if let Some(delim) = arg_config.delimiter {
+        arg = arg.value_delimiter(delim);
+    }
+
     arg
+}
+
+/// Parse a num_args string into a Clap ValueRange.
+fn parse_num_args_range(s: &str) -> Option<clap::builder::ValueRange> {
+    let s = s.trim();
+
+    // Single number
+    if let Ok(n) = s.parse::<usize>() {
+        return Some(clap::builder::ValueRange::new(n..=n));
+    }
+
+    // Range formats
+    if let Some(idx) = s.find("..") {
+        let start: usize = s[..idx].parse().ok()?;
+        let rest = &s[idx + 2..];
+
+        if rest.is_empty() {
+            // Unbounded: "N.."
+            return Some(clap::builder::ValueRange::new(start..));
+        }
+        if let Ok(end) = rest.parse::<usize>() {
+            // Exclusive: "N..M"
+            return Some(clap::builder::ValueRange::new(start..end));
+        }
+        if let Some(stripped) = rest.strip_prefix('=') {
+            if let Ok(end) = stripped.parse::<usize>() {
+                // Inclusive: "N..=M"
+                return Some(clap::builder::ValueRange::new(start..=end));
+            }
+        }
+    }
+
+    None
 }
 
 /// Generate the full help text for a script.
@@ -113,6 +210,7 @@ mod tests {
             version: version.map(|s| s.to_string()),
             prefix: None,
             args,
+            subcommands: vec![],
         }
     }
 
@@ -130,6 +228,10 @@ mod tests {
             required: false,
             default: None,
             help: help.map(|s| s.to_string()),
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
         }
     }
 
@@ -149,6 +251,10 @@ mod tests {
             required,
             default: default.map(|s| s.to_string()),
             help: help.map(|s| s.to_string()),
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
         }
     }
 
@@ -161,6 +267,10 @@ mod tests {
             required,
             default: None,
             help: help.map(|s| s.to_string()),
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
         }
     }
 

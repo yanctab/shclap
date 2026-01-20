@@ -379,6 +379,219 @@ else
 fi
 
 
+section "11. Schema Version 2 - Environment Variable Fallback"
+
+# Test: Env var fallback when no CLI arg provided
+run_test
+unset SHCLAP_INPUT 2>/dev/null || true
+export TEST_INPUT_VAR="from_environment"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
+    {"name":"input","long":"input","type":"option","env":"TEST_INPUT_VAR"}
+]}' -- )"
+if [[ "${SHCLAP_INPUT:-}" == "from_environment" ]]; then
+    pass "Env var fallback (TEST_INPUT_VAR) sets SHCLAP_INPUT"
+else
+    fail "Env var fallback" "SHCLAP_INPUT=from_environment" "SHCLAP_INPUT=${SHCLAP_INPUT:-unset}"
+fi
+unset TEST_INPUT_VAR
+
+# Test: CLI arg takes precedence over env var
+run_test
+unset SHCLAP_INPUT 2>/dev/null || true
+export TEST_INPUT_VAR="from_environment"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
+    {"name":"input","long":"input","type":"option","env":"TEST_INPUT_VAR"}
+]}' -- --input from_cli)"
+if [[ "${SHCLAP_INPUT:-}" == "from_cli" ]]; then
+    pass "CLI arg takes precedence over env var"
+else
+    fail "CLI precedence over env" "SHCLAP_INPUT=from_cli" "SHCLAP_INPUT=${SHCLAP_INPUT:-unset}"
+fi
+unset TEST_INPUT_VAR
+
+
+section "12. Schema Version 2 - Multiple Values"
+
+# Test: Multiple option values output as bash array
+run_test
+unset SHCLAP_FILES 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
+    {"name":"files","long":"file","type":"option","multiple":true}
+]}' -- --file a.txt --file b.txt --file c.txt)"
+if [[ "${#SHCLAP_FILES[@]}" -eq 3 && "${SHCLAP_FILES[0]}" == "a.txt" && "${SHCLAP_FILES[1]}" == "b.txt" && "${SHCLAP_FILES[2]}" == "c.txt" ]]; then
+    pass "Multiple option values output as bash array"
+else
+    fail "Multiple option values" "SHCLAP_FILES=(a.txt b.txt c.txt)" "SHCLAP_FILES=(${SHCLAP_FILES[*]:-unset})"
+fi
+
+# Test: Multiple flag counts occurrences
+run_test
+unset SHCLAP_VERBOSE 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
+    {"name":"verbose","short":"v","type":"flag","multiple":true}
+]}' -- -vvv)"
+if [[ "${SHCLAP_VERBOSE:-}" == "3" ]]; then
+    pass "Multiple flag (-vvv) counts to 3"
+else
+    fail "Multiple flag count" "SHCLAP_VERBOSE=3" "SHCLAP_VERBOSE=${SHCLAP_VERBOSE:-unset}"
+fi
+
+# Test: Delimiter splits single value into array
+run_test
+unset SHCLAP_TAGS 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
+    {"name":"tags","long":"tags","type":"option","multiple":true,"delimiter":","}
+]}' -- --tags "one,two,three")"
+if [[ "${#SHCLAP_TAGS[@]}" -eq 3 && "${SHCLAP_TAGS[0]}" == "one" && "${SHCLAP_TAGS[1]}" == "two" && "${SHCLAP_TAGS[2]}" == "three" ]]; then
+    pass "Delimiter splits value into array"
+else
+    fail "Delimiter split" "SHCLAP_TAGS=(one two three)" "SHCLAP_TAGS=(${SHCLAP_TAGS[*]:-unset})"
+fi
+
+# Test: Multiple values with special characters
+run_test
+unset SHCLAP_FILES 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
+    {"name":"files","long":"file","type":"option","multiple":true}
+]}' -- --file 'file with spaces.txt' --file 'another file.txt')"
+if [[ "${#SHCLAP_FILES[@]}" -eq 2 && "${SHCLAP_FILES[0]}" == "file with spaces.txt" && "${SHCLAP_FILES[1]}" == "another file.txt" ]]; then
+    pass "Multiple values preserve spaces"
+else
+    fail "Multiple values with spaces" "SHCLAP_FILES=('file with spaces.txt' 'another file.txt')" "SHCLAP_FILES=(${SHCLAP_FILES[*]:-unset})"
+fi
+
+
+section "13. Schema Version 2 - Subcommands"
+
+# Test: Basic subcommand parsing
+run_test
+unset SHCLAP_SUBCOMMAND 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","subcommands":[
+    {"name":"init","help":"Initialize a project"},
+    {"name":"run","help":"Run the project"}
+]}' -- init)"
+if [[ "${SHCLAP_SUBCOMMAND:-}" == "init" ]]; then
+    pass "Subcommand 'init' sets SHCLAP_SUBCOMMAND=init"
+else
+    fail "Basic subcommand" "SHCLAP_SUBCOMMAND=init" "SHCLAP_SUBCOMMAND=${SHCLAP_SUBCOMMAND:-unset}"
+fi
+
+# Test: Subcommand with positional argument
+run_test
+unset SHCLAP_SUBCOMMAND SHCLAP_TEMPLATE 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","subcommands":[
+    {"name":"init","args":[{"name":"template","type":"positional"}]}
+]}' -- init mytemplate)"
+if [[ "${SHCLAP_SUBCOMMAND:-}" == "init" && "${SHCLAP_TEMPLATE:-}" == "mytemplate" ]]; then
+    pass "Subcommand with positional argument"
+else
+    fail "Subcommand with positional" "SUBCOMMAND=init, TEMPLATE=mytemplate" "SUBCOMMAND=${SHCLAP_SUBCOMMAND:-unset}, TEMPLATE=${SHCLAP_TEMPLATE:-unset}"
+fi
+
+# Test: Subcommand with option argument
+run_test
+unset SHCLAP_SUBCOMMAND SHCLAP_VERBOSE 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","subcommands":[
+    {"name":"run","args":[{"name":"verbose","short":"v","type":"flag"}]}
+]}' -- run -v)"
+if [[ "${SHCLAP_SUBCOMMAND:-}" == "run" && "${SHCLAP_VERBOSE:-}" == "true" ]]; then
+    pass "Subcommand with flag argument"
+else
+    fail "Subcommand with flag" "SUBCOMMAND=run, VERBOSE=true" "SUBCOMMAND=${SHCLAP_SUBCOMMAND:-unset}, VERBOSE=${SHCLAP_VERBOSE:-unset}"
+fi
+
+# Test: Main command args with subcommand
+run_test
+unset SHCLAP_SUBCOMMAND SHCLAP_DEBUG SHCLAP_NAME 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test",
+    "args":[{"name":"debug","short":"d","type":"flag"}],
+    "subcommands":[{"name":"create","args":[{"name":"name","type":"positional"}]}]
+}' -- -d create myproject)"
+if [[ "${SHCLAP_DEBUG:-}" == "true" && "${SHCLAP_SUBCOMMAND:-}" == "create" && "${SHCLAP_NAME:-}" == "myproject" ]]; then
+    pass "Main command args combined with subcommand"
+else
+    fail "Main args + subcommand" "DEBUG=true, SUBCOMMAND=create, NAME=myproject" "DEBUG=${SHCLAP_DEBUG:-unset}, SUBCOMMAND=${SHCLAP_SUBCOMMAND:-unset}, NAME=${SHCLAP_NAME:-unset}"
+fi
+
+# Test: Subcommand help
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"myapp","subcommands":[
+    {"name":"init","help":"Initialize a new project"}
+]}' -- --help)
+HELP_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$HELP_OUTPUT" | grep -q "init" && echo "$HELP_OUTPUT" | grep -q "Initialize"; then
+    pass "Subcommand appears in help output"
+else
+    fail "Subcommand in help" "Should show 'init' and 'Initialize'" "$HELP_OUTPUT"
+fi
+
+# Test: Missing required subcommand shows help
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","subcommands":[
+    {"name":"init"}
+]}' -- )
+HELP_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$HELP_OUTPUT" | grep -qi "usage\|init"; then
+    pass "Missing subcommand shows help/usage"
+else
+    fail "Missing subcommand" "Should show usage or available subcommands" "$HELP_OUTPUT"
+fi
+
+
+section "14. Schema Version 2 - Validation Errors"
+
+# Test: V2 field 'env' rejected in schema v1
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
+    {"name":"input","long":"input","type":"option","env":"MY_VAR"}
+]}' -- )
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "requires schema_version"; then
+    pass "Field 'env' rejected in schema v1"
+else
+    fail "V2 field validation" "Should reject 'env' in v1" "$ERROR_OUTPUT"
+fi
+
+# Test: V2 field 'multiple' rejected in schema v1
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
+    {"name":"files","long":"file","type":"option","multiple":true}
+]}' -- )
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "requires schema_version"; then
+    pass "Field 'multiple' rejected in schema v1"
+else
+    fail "V2 field validation" "Should reject 'multiple' in v1" "$ERROR_OUTPUT"
+fi
+
+# Test: Subcommands rejected in schema v1
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","subcommands":[
+    {"name":"init"}
+]}' -- )
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "require.*schema_version"; then
+    pass "Subcommands rejected in schema v1"
+else
+    fail "Subcommands validation" "Should reject subcommands in v1" "$ERROR_OUTPUT"
+fi
+
+
+section "15. Schema Version 2 - num_args Range"
+
+# Test: num_args accepts multiple values in single invocation
+run_test
+unset SHCLAP_FILES 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
+    {"name":"files","long":"file","type":"option","multiple":true,"num_args":"1..3"}
+]}' -- --file a.txt b.txt)"
+if [[ "${#SHCLAP_FILES[@]}" -eq 2 && "${SHCLAP_FILES[0]}" == "a.txt" && "${SHCLAP_FILES[1]}" == "b.txt" ]]; then
+    pass "num_args allows multiple values per invocation"
+else
+    fail "num_args range" "SHCLAP_FILES=(a.txt b.txt)" "SHCLAP_FILES=(${SHCLAP_FILES[*]:-unset})"
+fi
+
+
 #
 # Summary
 #

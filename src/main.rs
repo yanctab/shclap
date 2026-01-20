@@ -73,9 +73,13 @@ fn main() -> Result<()> {
 
             // Handle parse result
             match parse_args(&cfg, &args) {
-                ParseOutcome::Success(parsed) => {
-                    let path = generate_output(&parsed, effective_prefix)
-                        .context("failed to generate output file")?;
+                ParseOutcome::Success(result) => {
+                    let path = generate_output(
+                        &result.values,
+                        effective_prefix,
+                        result.subcommand.as_deref(),
+                    )
+                    .context("failed to generate output file")?;
                     println!("{}", path.display());
                 }
                 ParseOutcome::Help(help_text) => {
