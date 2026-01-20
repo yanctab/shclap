@@ -161,5 +161,5 @@ source $(shclap parse --config "$CONFIG" --prefix="APP_" -- "$@")
 ## See Also
 
 - [Configuration Reference](configuration.md) - Full JSON schema reference
-- [Schema Version 2 Features](schema-v2.md) - Extended features
+- [Schema Reference](schema.md) - Schema versioning and v2 features
 - [Examples](examples.md) - Complete working examples

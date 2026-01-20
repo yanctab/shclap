@@ -42,7 +42,7 @@ make setup-build-env && make release && make install
 ## Documentation
 
 - [Configuration Reference](docs/configuration.md)
-- [Schema Version 2 Features](docs/schema-v2.md)
+- [Schema Reference](docs/schema.md)
 - [Examples](docs/examples.md)
 - [CLI Reference](docs/cli-reference.md)
 

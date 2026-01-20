@@ -1,8 +1,72 @@
-# Schema Version 2 Features
+# Schema Reference
 
-Set `"schema_version": 2` in your configuration to enable these extended features.
+This document covers shclap's schema versioning system and the features available in each version.
 
-## Environment Variable Fallback
+## Overview
+
+shclap uses a schema version number to enable backwards-compatible feature additions. The `schema_version` field in your configuration determines which features are available:
+
+- **Version 1** (default): Basic flags, options, and positional arguments
+- **Version 2**: Adds environment variable fallback, multiple values, and subcommands
+
+See [Configuration Reference](configuration.md) for the complete field reference.
+
+## Choosing a Schema Version
+
+| Use Case | Recommended Version |
+|----------|---------------------|
+| Simple scripts with basic flags and options | v1 (default) |
+| Need environment variable fallback | v2 |
+| Need multiple values (arrays) | v2 |
+| Need subcommands like `git init`, `git commit` | v2 |
+
+## Schema Version 1 (Default)
+
+Version 1 is the default and requires no explicit `schema_version` field. It supports:
+
+- **Flags**: Boolean switches (`-v`, `--verbose`)
+- **Options**: Key-value arguments (`-o file`, `--output=file`)
+- **Positional arguments**: Unnamed arguments (`input.txt`)
+- **Default values**: Fallback when argument not provided
+- **Required arguments**: Validation for mandatory arguments
+- **Auto-generated help**: `--help` and `--version` flags
+
+### Example
+
+```bash
+#!/bin/bash
+CONFIG='{
+  "name": "process",
+  "description": "Process data files",
+  "args": [
+    {"name": "verbose", "short": "v", "type": "flag"},
+    {"name": "output", "short": "o", "type": "option", "required": true},
+    {"name": "input", "type": "positional"}
+  ]
+}'
+source $(shclap parse --config "$CONFIG" -- "$@")
+```
+
+### Limitations
+
+Version 1 does not support:
+- Environment variable fallback (`env` field)
+- Multiple values (`multiple` field)
+- Subcommands (`subcommands` field)
+
+## Schema Version 2
+
+Enable version 2 by adding `"schema_version": 2` to your configuration:
+
+```json
+{
+  "schema_version": 2,
+  "name": "myapp",
+  "args": [...]
+}
+```
+
+### Environment Variable Fallback
 
 Arguments can fall back to environment variables when not provided on the command line. Use the `env` field to specify which environment variable to check:
 
@@ -23,7 +87,7 @@ source $(shclap parse --config "$CONFIG" -- "$@")
 2. Environment variable (fallback)
 3. Default value (if specified)
 
-## Multiple Values
+### Multiple Values
 
 Arguments can accept multiple values, output as bash arrays. Enable with `"multiple": true`:
 
@@ -42,7 +106,7 @@ for f in "${SHCLAP_FILES[@]}"; do
 done
 ```
 
-### Delimiter Splitting
+#### Delimiter Splitting
 
 Use `delimiter` to split a single value into multiple:
 
@@ -54,7 +118,7 @@ Use `delimiter` to split a single value into multiple:
 # --tags "one,two,three" -> SHCLAP_TAGS=("one" "two" "three")
 ```
 
-### Multiple Values Per Occurrence
+#### Multiple Values Per Occurrence
 
 Use `num_args` to accept multiple values per flag occurrence:
 
@@ -66,7 +130,7 @@ Use `num_args` to accept multiple values per flag occurrence:
 # --point 10 20 --point 30 40 -> SHCLAP_POINT=("10" "20" "30" "40")
 ```
 
-## Subcommands
+### Subcommands
 
 Define nested commands like `git init`, `git commit`. Each subcommand can have its own set of arguments:
 
@@ -98,7 +162,7 @@ CONFIG='{
 source $(shclap parse --config "$CONFIG" -- "$@")
 ```
 
-### Handling Subcommands
+#### Handling Subcommands
 
 The selected subcommand name is stored in `$SHCLAP_SUBCOMMAND`. Use a `case` statement to handle different commands:
 
@@ -117,7 +181,7 @@ case "$SHCLAP_SUBCOMMAND" in
 esac
 ```
 
-### Subcommand Fields
+#### Subcommand Fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -125,9 +189,9 @@ esac
 | `help` | string | No | Help text for subcommand |
 | `args` | array | No | Arguments specific to this subcommand |
 
-## Output Format
+### Output Format
 
-### Arrays
+#### Arrays
 
 Multiple-value arguments are output as bash arrays:
 
@@ -140,13 +204,30 @@ Access elements with:
 - `${SHCLAP_FILES[@]}` - All elements
 - `${#SHCLAP_FILES[@]}` - Array length
 
-### SHCLAP_SUBCOMMAND
+#### SHCLAP_SUBCOMMAND
 
 When using subcommands, an additional variable is set:
 
 ```bash
 SHCLAP_SUBCOMMAND="init"  # Name of the selected subcommand
 ```
+
+## Migration from v1 to v2
+
+Migrating from version 1 to version 2 is straightforward:
+
+1. Add `"schema_version": 2` to your configuration
+2. All existing v1 configurations work unchanged in v2
+
+```json
+{
+  "schema_version": 2,
+  "name": "myapp",
+  "args": [...]
+}
+```
+
+Version 2 is fully backwards-compatible with version 1 configurations.
 
 ## See Also
 

@@ -329,5 +329,5 @@ Usage:
 ## See Also
 
 - [Configuration Reference](configuration.md) - Full JSON schema reference
-- [Schema Version 2 Features](schema-v2.md) - Extended features
+- [Schema Reference](schema.md) - Schema versioning and v2 features
 - [CLI Reference](cli-reference.md) - Command-line options

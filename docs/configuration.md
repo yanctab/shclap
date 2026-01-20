@@ -95,6 +95,6 @@ For example, with default prefix `SHCLAP_`:
 
 ## See Also
 
-- [Schema Version 2 Features](schema-v2.md) - Extended features like env fallback, multiple values, subcommands
+- [Schema Reference](schema.md) - Schema versioning and v2 features
 - [Examples](examples.md) - Complete working examples
 - [CLI Reference](cli-reference.md) - Command-line options
