@@ -189,8 +189,8 @@ Each task follows this workflow:
 - ~~Create man page (`man/shclap.1`)~~
 - ~~Include man page in .deb package~~
 - ~~Test package build with `cargo-deb`~~
-- [ ] Verify installation from .deb file
-- [ ] Verify man page accessible via `man shclap`
+- ~~Verify installation from .deb file~~
+- ~~Verify man page accessible via `man shclap`~~
 
 ---
 
