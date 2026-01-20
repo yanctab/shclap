@@ -23,7 +23,9 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 
 # Find the shclap binary
-if [[ -x "./target/release/shclap" ]]; then
+if [[ -x "./target/x86_64-unknown-linux-musl/release/shclap" ]]; then
+    SHCLAP="./target/x86_64-unknown-linux-musl/release/shclap"
+elif [[ -x "./target/release/shclap" ]]; then
     SHCLAP="./target/release/shclap"
 elif [[ -x "./target/debug/shclap" ]]; then
     SHCLAP="./target/debug/shclap"
