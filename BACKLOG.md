@@ -223,3 +223,24 @@ Each task follows this workflow:
 - ~~CI pipeline passes on PR~~
 - ~~Release pipeline produces artifacts on tag push~~
 - ~~Manual verification with real shell script~~
+
+---
+
+## Phase 6 - Extra Tasks
+
+### More flags
+- We need --name to be able to set the application name as a flag to shclap that way we can avoid hard code it in the config.
+- Extend the cli-reference.md with this new flag.
+
+### Documentation
+- Clarify "Environment variable fallback for options" in the schematic v2 I don't understand it.
+- Go over how errors are handled like if a flag name is wrong show by example if not already done.
+- We also need to clearly cover in the documentation how env variables are managed maybe in its own md-file under docs.
+- We also need to clearly cover how the --help flag is managed by the script and how shclap help can be used by script to print out help for the arguments.
+
+### Print How The script was called
+- We should add a shclap print that could be called by the script this should then print out all <scriptname> followed by all the flags used when calling the script. If it is a mix of flags and env convert the env varibles to matching flags.
+
+---
+
+
