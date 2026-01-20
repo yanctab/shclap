@@ -267,7 +267,7 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"name":"myapp","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- -v --help)
 HELP_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
-if echo "$HELP_OUTPUT" | grep -q "USAGE"; then
+if echo "$HELP_OUTPUT" | grep -qi "usage"; then
     pass "--help takes precedence over other flags"
 else
     fail "--help precedence" "Should display help even with other flags" "$HELP_OUTPUT"
