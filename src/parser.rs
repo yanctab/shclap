@@ -1,14 +1,47 @@
 //! Argument parsing for target scripts using dynamic Clap.
 
-use crate::config::{ArgConfig, ArgType, Config};
+use crate::config::{ArgConfig, ArgType, Config, SubcommandConfig};
 use clap::{error::ErrorKind, Arg, ArgAction, Command};
 use std::collections::HashMap;
+
+/// A parsed argument value, which can be single or multiple.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedValue {
+    /// A single string value
+    Single(String),
+    /// Multiple string values (from multiple occurrences or delimiter-split)
+    Multiple(Vec<String>),
+}
+
+impl ParsedValue {
+    /// Get the value as a single string (joins multiple with space if needed).
+    pub fn as_single(&self) -> String {
+        match self {
+            ParsedValue::Single(s) => s.clone(),
+            ParsedValue::Multiple(v) => v.join(" "),
+        }
+    }
+
+    /// Check if this is a multiple value.
+    pub fn is_multiple(&self) -> bool {
+        matches!(self, ParsedValue::Multiple(_))
+    }
+}
+
+/// Successful parse result with values and optional subcommand.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseSuccess {
+    /// Parsed argument values
+    pub values: HashMap<String, ParsedValue>,
+    /// Subcommand name if one was matched
+    pub subcommand: Option<String>,
+}
 
 /// Outcome of parsing arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseOutcome {
     /// Successfully parsed arguments with variable values.
-    Success(HashMap<String, String>),
+    Success(ParseSuccess),
     /// User requested help (-h or --help).
     Help(String),
     /// User requested version (-V or --version).
@@ -61,6 +94,38 @@ fn build_command(config: &Config) -> Command {
         cmd = cmd.arg(arg);
     }
 
+    // Add subcommands (schema v2)
+    for subcmd_config in &config.subcommands {
+        let subcmd = build_subcommand(subcmd_config);
+        cmd = cmd.subcommand(subcmd);
+    }
+
+    // Require subcommand if any defined
+    if !config.subcommands.is_empty() {
+        cmd = cmd.subcommand_required(true);
+        cmd = cmd.arg_required_else_help(true);
+    }
+
+    cmd
+}
+
+/// Build a Clap Command for a subcommand config.
+fn build_subcommand(config: &SubcommandConfig) -> Command {
+    let mut cmd = Command::new(config.name.clone());
+
+    if let Some(ref help) = config.help {
+        cmd = cmd.about(help.clone());
+    }
+
+    // Track positional index for ordering
+    let mut positional_index = 1usize;
+
+    // Add arguments
+    for arg_config in &config.args {
+        let arg = build_arg(arg_config, &mut positional_index);
+        cmd = cmd.arg(arg);
+    }
+
     cmd
 }
 
@@ -70,7 +135,12 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
 
     match arg_config.arg_type {
         ArgType::Flag => {
-            arg = arg.action(ArgAction::SetTrue);
+            // For flags, use Count if multiple, SetTrue otherwise
+            if arg_config.multiple {
+                arg = arg.action(ArgAction::Count);
+            } else {
+                arg = arg.action(ArgAction::SetTrue);
+            }
 
             // Add short option
             if let Some(short) = arg_config.short {
@@ -83,7 +153,12 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
             }
         }
         ArgType::Option => {
-            arg = arg.action(ArgAction::Set);
+            // For options, use Append if multiple, Set otherwise
+            if arg_config.multiple {
+                arg = arg.action(ArgAction::Append);
+            } else {
+                arg = arg.action(ArgAction::Set);
+            }
 
             // Add short option
             if let Some(short) = arg_config.short {
@@ -107,6 +182,11 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
 
             // Allow values that look like flags (e.g., after --)
             arg = arg.allow_hyphen_values(true);
+
+            // For multiple positionals
+            if arg_config.multiple {
+                arg = arg.action(ArgAction::Append);
+            }
         }
     }
 
@@ -125,26 +205,97 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
         arg = arg.help(help.clone());
     }
 
+    // Schema v2: Environment variable fallback
+    if let Some(ref env_var) = arg_config.env {
+        arg = arg.env(env_var);
+    }
+
+    // Schema v2: num_args range
+    if let Some(ref num_args) = arg_config.num_args {
+        if let Some(range) = parse_num_args_range(num_args) {
+            arg = arg.num_args(range);
+        }
+    }
+
+    // Schema v2: Value delimiter
+    if let Some(delim) = arg_config.delimiter {
+        arg = arg.value_delimiter(delim);
+    }
+
     arg
 }
 
+/// Parse a num_args string into a Clap ValueRange.
+fn parse_num_args_range(s: &str) -> Option<clap::builder::ValueRange> {
+    let s = s.trim();
+
+    // Single number
+    if let Ok(n) = s.parse::<usize>() {
+        return Some(clap::builder::ValueRange::new(n..=n));
+    }
+
+    // Range formats
+    if let Some(idx) = s.find("..") {
+        let start: usize = s[..idx].parse().ok()?;
+        let rest = &s[idx + 2..];
+
+        if rest.is_empty() {
+            // Unbounded: "N.."
+            return Some(clap::builder::ValueRange::new(start..));
+        }
+        if let Ok(end) = rest.parse::<usize>() {
+            // Exclusive: "N..M"
+            return Some(clap::builder::ValueRange::new(start..end));
+        }
+        if let Some(stripped) = rest.strip_prefix('=') {
+            if let Ok(end) = stripped.parse::<usize>() {
+                // Inclusive: "N..=M"
+                return Some(clap::builder::ValueRange::new(start..=end));
+            }
+        }
+    }
+
+    None
+}
+
 /// Extract parsed values from ArgMatches into a HashMap.
-fn extract_values(config: &Config, matches: &clap::ArgMatches) -> HashMap<String, String> {
+fn extract_values(args: &[ArgConfig], matches: &clap::ArgMatches) -> HashMap<String, ParsedValue> {
     let mut results = HashMap::new();
 
-    for arg_config in &config.args {
+    for arg_config in args {
         let name = &arg_config.name;
 
         match arg_config.arg_type {
             ArgType::Flag => {
-                let value = matches.get_flag(name);
-                results.insert(name.clone(), value.to_string());
+                if arg_config.multiple {
+                    // Count action returns u8
+                    let count = matches.get_count(name);
+                    results.insert(name.clone(), ParsedValue::Single(count.to_string()));
+                } else {
+                    let value = matches.get_flag(name);
+                    results.insert(name.clone(), ParsedValue::Single(value.to_string()));
+                }
             }
             ArgType::Option | ArgType::Positional => {
-                if let Some(value) = matches.get_one::<String>(name) {
-                    results.insert(name.clone(), value.clone());
-                } else if let Some(ref default) = arg_config.default {
-                    results.insert(name.clone(), default.clone());
+                if arg_config.multiple {
+                    // Multiple values: get all
+                    let values: Vec<String> = matches
+                        .get_many::<String>(name)
+                        .map(|v| v.cloned().collect())
+                        .unwrap_or_default();
+
+                    if !values.is_empty() {
+                        results.insert(name.clone(), ParsedValue::Multiple(values));
+                    } else if let Some(ref default) = arg_config.default {
+                        results.insert(name.clone(), ParsedValue::Multiple(vec![default.clone()]));
+                    }
+                } else {
+                    // Single value
+                    if let Some(value) = matches.get_one::<String>(name) {
+                        results.insert(name.clone(), ParsedValue::Single(value.clone()));
+                    } else if let Some(ref default) = arg_config.default {
+                        results.insert(name.clone(), ParsedValue::Single(default.clone()));
+                    }
                 }
             }
         }
@@ -168,8 +319,31 @@ pub fn parse_args(config: &Config, args: &[String]) -> ParseOutcome {
 
     match cmd.try_get_matches_from(&full_args) {
         Ok(matches) => {
-            let values = extract_values(config, &matches);
-            ParseOutcome::Success(values)
+            // Check for subcommand
+            if let Some((subcmd_name, subcmd_matches)) = matches.subcommand() {
+                // Find the subcommand config
+                if let Some(subcmd_config) =
+                    config.subcommands.iter().find(|s| s.name == subcmd_name)
+                {
+                    // Extract main command args
+                    let mut values = extract_values(&config.args, &matches);
+                    // Extract subcommand args
+                    let subcmd_values = extract_values(&subcmd_config.args, subcmd_matches);
+                    values.extend(subcmd_values);
+
+                    return ParseOutcome::Success(ParseSuccess {
+                        values,
+                        subcommand: Some(subcmd_name.to_string()),
+                    });
+                }
+            }
+
+            // No subcommand
+            let values = extract_values(&config.args, &matches);
+            ParseOutcome::Success(ParseSuccess {
+                values,
+                subcommand: None,
+            })
         }
         Err(e) => {
             match e.kind() {
@@ -256,9 +430,22 @@ mod tests {
         s.iter().map(|s| s.to_string()).collect()
     }
 
+    /// Helper to unwrap success and convert to simple string map for existing tests.
     fn unwrap_success(outcome: ParseOutcome) -> HashMap<String, String> {
         match outcome {
-            ParseOutcome::Success(map) => map,
+            ParseOutcome::Success(ps) => ps
+                .values
+                .into_iter()
+                .map(|(k, v)| (k, v.as_single()))
+                .collect(),
+            other => panic!("Expected Success, got {:?}", other),
+        }
+    }
+
+    /// Helper to unwrap success and return the full ParseSuccess.
+    fn unwrap_success_full(outcome: ParseOutcome) -> ParseSuccess {
+        match outcome {
+            ParseOutcome::Success(ps) => ps,
             other => panic!("Expected Success, got {:?}", other),
         }
     }
@@ -643,5 +830,165 @@ mod tests {
         );
         let result = parse_args(&config, &args(&["-v", "--version"]));
         assert!(matches!(result, ParseOutcome::Version(_)));
+    }
+
+    // Schema v2 tests
+
+    #[test]
+    fn test_env_fallback() {
+        // Note: env var tests require actual env vars set, which is tricky in unit tests.
+        // This test verifies the config parses correctly; actual env fallback is a Clap feature.
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"input","long":"input","type":"option","env":"TEST_INPUT"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        // Without env var set and no CLI arg, value should be absent
+        let result = unwrap_success_full(parse_args(&config, &args(&[])));
+        assert!(result.values.get("input").is_none());
+    }
+
+    #[test]
+    fn test_multiple_option_values() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"file","long":"file","type":"option","multiple":true}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success_full(parse_args(
+            &config,
+            &args(&["--file", "a.txt", "--file", "b.txt"]),
+        ));
+        match result.values.get("file") {
+            Some(ParsedValue::Multiple(v)) => {
+                assert_eq!(v, &vec!["a.txt".to_string(), "b.txt".to_string()]);
+            }
+            other => panic!("Expected Multiple, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_multiple_flag_count() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"verbose","short":"v","type":"flag","multiple":true}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(&config, &args(&["-vvv"])));
+        assert_eq!(result.get("verbose"), Some(&"3".to_string()));
+    }
+
+    #[test]
+    fn test_delimiter_split() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"tags","long":"tags","type":"option","multiple":true,"delimiter":","}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success_full(parse_args(&config, &args(&["--tags", "a,b,c"])));
+        match result.values.get("tags") {
+            Some(ParsedValue::Multiple(v)) => {
+                assert_eq!(v, &vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+            }
+            other => panic!("Expected Multiple, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_subcommand_basic() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","subcommands":[
+                {"name":"init","help":"Initialize"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success_full(parse_args(&config, &args(&["init"])));
+        assert_eq!(result.subcommand, Some("init".to_string()));
+    }
+
+    #[test]
+    fn test_subcommand_with_args() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","subcommands":[
+                {"name":"init","args":[
+                    {"name":"template","type":"positional"}
+                ]}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success_full(parse_args(&config, &args(&["init", "default"])));
+        assert_eq!(result.subcommand, Some("init".to_string()));
+        assert_eq!(
+            result.values.get("template"),
+            Some(&ParsedValue::Single("default".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_subcommand_with_main_args() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test",
+                "args":[{"name":"verbose","short":"v","type":"flag"}],
+                "subcommands":[{"name":"run"}]
+            }"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success_full(parse_args(&config, &args(&["-v", "run"])));
+        assert_eq!(result.subcommand, Some("run".to_string()));
+        assert_eq!(
+            result.values.get("verbose"),
+            Some(&ParsedValue::Single("true".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_subcommand_required() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","subcommands":[
+                {"name":"init"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = parse_args(&config, &args(&[]));
+        // Should error because subcommand is required
+        assert!(matches!(
+            result,
+            ParseOutcome::Help(_) | ParseOutcome::Error(_)
+        ));
+    }
+
+    #[test]
+    fn test_num_args_range() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"files","long":"file","type":"option","multiple":true,"num_args":"1..3"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success_full(parse_args(&config, &args(&["--file", "a", "b"])));
+        match result.values.get("files") {
+            Some(ParsedValue::Multiple(v)) => {
+                assert_eq!(v.len(), 2);
+            }
+            other => panic!("Expected Multiple, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_num_args_formats() {
+        // Single number
+        assert!(parse_num_args_range("3").is_some());
+        // Unbounded
+        assert!(parse_num_args_range("1..").is_some());
+        // Exclusive range
+        assert!(parse_num_args_range("2..5").is_some());
+        // Inclusive range
+        assert!(parse_num_args_range("1..=3").is_some());
+        // Invalid
+        assert!(parse_num_args_range("abc").is_none());
     }
 }

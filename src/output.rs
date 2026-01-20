@@ -1,5 +1,6 @@
 //! Temporary file generation with shell export statements and special outputs.
 
+use crate::parser::ParsedValue;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::io::Write;
@@ -43,22 +44,68 @@ fn to_shell_var_name(name: &str) -> String {
 ///
 /// Returns the path to the temporary file. The file will persist
 /// until the process exits or it's manually deleted.
-pub fn generate_output(parsed: &HashMap<String, String>, prefix: &str) -> Result<PathBuf> {
-    let mut file = NamedTempFile::new()?;
-
-    for (name, value) in parsed {
-        let var_name = format!("{}{}", prefix, to_shell_var_name(name));
-        let escaped_value = escape_shell_value(value);
-        writeln!(file, "export {}=\"{}\"", var_name, escaped_value)?;
-    }
-
-    // Persist the file (don't delete on drop)
-    let path = file.into_temp_path().keep()?;
-    Ok(path)
+pub fn generate_output(
+    parsed: &HashMap<String, ParsedValue>,
+    prefix: &str,
+    subcommand: Option<&str>,
+) -> Result<PathBuf> {
+    let content = generate_output_string(parsed, prefix, subcommand);
+    write_temp_file(&content)
 }
 
 /// Generate the output content as a string (for testing).
-pub fn generate_output_string(parsed: &HashMap<String, String>, prefix: &str) -> String {
+pub fn generate_output_string(
+    parsed: &HashMap<String, ParsedValue>,
+    prefix: &str,
+    subcommand: Option<&str>,
+) -> String {
+    let mut output = String::new();
+
+    // Output subcommand first if present
+    if let Some(subcmd) = subcommand {
+        output.push_str(&format!(
+            "export {}SUBCOMMAND=\"{}\"\n",
+            prefix,
+            escape_shell_value(subcmd)
+        ));
+    }
+
+    // Sort keys for deterministic output
+    let mut keys: Vec<_> = parsed.keys().collect();
+    keys.sort();
+
+    for name in keys {
+        let value = &parsed[name];
+        let var_name = format!("{}{}", prefix, to_shell_var_name(name));
+
+        match value {
+            ParsedValue::Single(s) => {
+                let escaped_value = escape_shell_value(s);
+                output.push_str(&format!("export {}=\"{}\"\n", var_name, escaped_value));
+            }
+            ParsedValue::Multiple(values) => {
+                // Output as bash array: export VAR=("val1" "val2" "val3")
+                let escaped: Vec<String> = values
+                    .iter()
+                    .map(|v| format!("\"{}\"", escape_shell_value(v)))
+                    .collect();
+                output.push_str(&format!("export {}=({})\n", var_name, escaped.join(" ")));
+            }
+        }
+    }
+
+    output
+}
+
+/// Generate output using legacy HashMap<String, String> format.
+/// For backward compatibility with existing code.
+pub fn generate_output_legacy(parsed: &HashMap<String, String>, prefix: &str) -> Result<PathBuf> {
+    let content = generate_output_string_legacy(parsed, prefix);
+    write_temp_file(&content)
+}
+
+/// Generate the output content as a string using legacy format (for testing).
+pub fn generate_output_string_legacy(parsed: &HashMap<String, String>, prefix: &str) -> String {
     let mut output = String::new();
 
     // Sort keys for deterministic output
@@ -143,10 +190,17 @@ mod tests {
             .collect()
     }
 
+    fn make_parsed_map(pairs: &[(&str, ParsedValue)]) -> HashMap<String, ParsedValue> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
+    }
+
     #[test]
     fn test_basic_output() {
         let parsed = make_map(&[("verbose", "true"), ("output", "file.txt")]);
-        let output = generate_output_string(&parsed, "SHCLAP_");
+        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_OUTPUT=\"file.txt\""));
         assert!(output.contains("export SHCLAP_VERBOSE=\"true\""));
@@ -155,7 +209,7 @@ mod tests {
     #[test]
     fn test_escape_dollar() {
         let parsed = make_map(&[("value", "$HOME/path")]);
-        let output = generate_output_string(&parsed, "SHCLAP_");
+        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_VALUE=\"\\$HOME/path\""));
     }
@@ -163,7 +217,7 @@ mod tests {
     #[test]
     fn test_escape_backtick() {
         let parsed = make_map(&[("cmd", "`whoami`")]);
-        let output = generate_output_string(&parsed, "SHCLAP_");
+        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_CMD=\"\\`whoami\\`\""));
     }
@@ -171,7 +225,7 @@ mod tests {
     #[test]
     fn test_escape_backslash() {
         let parsed = make_map(&[("path", "C:\\Users\\test")]);
-        let output = generate_output_string(&parsed, "SHCLAP_");
+        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_PATH=\"C:\\\\Users\\\\test\""));
     }
@@ -179,7 +233,7 @@ mod tests {
     #[test]
     fn test_escape_double_quote() {
         let parsed = make_map(&[("msg", "say \"hello\"")]);
-        let output = generate_output_string(&parsed, "SHCLAP_");
+        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_MSG=\"say \\\"hello\\\"\""));
     }
@@ -187,7 +241,7 @@ mod tests {
     #[test]
     fn test_escape_exclamation() {
         let parsed = make_map(&[("msg", "hello!")]);
-        let output = generate_output_string(&parsed, "SHCLAP_");
+        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_MSG=\"hello\\!\""));
     }
@@ -195,7 +249,7 @@ mod tests {
     #[test]
     fn test_escape_newline() {
         let parsed = make_map(&[("text", "line1\nline2")]);
-        let output = generate_output_string(&parsed, "SHCLAP_");
+        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_TEXT=\"line1\\nline2\""));
     }
@@ -203,7 +257,7 @@ mod tests {
     #[test]
     fn test_custom_prefix() {
         let parsed = make_map(&[("name", "test")]);
-        let output = generate_output_string(&parsed, "MYAPP_");
+        let output = generate_output_string_legacy(&parsed, "MYAPP_");
 
         assert!(output.contains("export MYAPP_NAME=\"test\""));
     }
@@ -211,7 +265,7 @@ mod tests {
     #[test]
     fn test_empty_value() {
         let parsed = make_map(&[("empty", "")]);
-        let output = generate_output_string(&parsed, "SHCLAP_");
+        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_EMPTY=\"\""));
     }
@@ -219,7 +273,7 @@ mod tests {
     #[test]
     fn test_value_with_spaces() {
         let parsed = make_map(&[("msg", "hello world")]);
-        let output = generate_output_string(&parsed, "SHCLAP_");
+        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_MSG=\"hello world\""));
     }
@@ -227,15 +281,15 @@ mod tests {
     #[test]
     fn test_hyphenated_name() {
         let parsed = make_map(&[("my-option", "value")]);
-        let output = generate_output_string(&parsed, "SHCLAP_");
+        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_MY_OPTION=\"value\""));
     }
 
     #[test]
     fn test_generate_output_creates_file() {
-        let parsed = make_map(&[("test", "value")]);
-        let path = generate_output(&parsed, "SHCLAP_").unwrap();
+        let parsed = make_parsed_map(&[("test", ParsedValue::Single("value".to_string()))]);
+        let path = generate_output(&parsed, "SHCLAP_", None).unwrap();
 
         assert!(path.exists());
 
@@ -249,11 +303,89 @@ mod tests {
     #[test]
     fn test_complex_escaping() {
         let parsed = make_map(&[("complex", "$var \"quoted\" `cmd` \\path!")]);
-        let output = generate_output_string(&parsed, "TEST_");
+        let output = generate_output_string_legacy(&parsed, "TEST_");
 
         assert!(
             output.contains("export TEST_COMPLEX=\"\\$var \\\"quoted\\\" \\`cmd\\` \\\\path\\!\"")
         );
+    }
+
+    // Schema v2 tests
+
+    #[test]
+    fn test_single_value_output() {
+        let parsed = make_parsed_map(&[
+            ("verbose", ParsedValue::Single("true".to_string())),
+            ("output", ParsedValue::Single("file.txt".to_string())),
+        ]);
+        let output = generate_output_string(&parsed, "SHCLAP_", None);
+
+        assert!(output.contains("export SHCLAP_OUTPUT=\"file.txt\""));
+        assert!(output.contains("export SHCLAP_VERBOSE=\"true\""));
+    }
+
+    #[test]
+    fn test_multiple_values_array_output() {
+        let parsed = make_parsed_map(&[(
+            "files",
+            ParsedValue::Multiple(vec![
+                "a.txt".to_string(),
+                "b.txt".to_string(),
+                "c.txt".to_string(),
+            ]),
+        )]);
+        let output = generate_output_string(&parsed, "SHCLAP_", None);
+
+        assert!(output.contains("export SHCLAP_FILES=(\"a.txt\" \"b.txt\" \"c.txt\")"));
+    }
+
+    #[test]
+    fn test_multiple_values_with_escaping() {
+        let parsed = make_parsed_map(&[(
+            "files",
+            ParsedValue::Multiple(vec![
+                "$HOME/a.txt".to_string(),
+                "file with spaces".to_string(),
+            ]),
+        )]);
+        let output = generate_output_string(&parsed, "SHCLAP_", None);
+
+        assert!(output.contains("export SHCLAP_FILES=(\"\\$HOME/a.txt\" \"file with spaces\")"));
+    }
+
+    #[test]
+    fn test_subcommand_output() {
+        let parsed = make_parsed_map(&[("template", ParsedValue::Single("default".to_string()))]);
+        let output = generate_output_string(&parsed, "SHCLAP_", Some("init"));
+
+        assert!(output.contains("export SHCLAP_SUBCOMMAND=\"init\""));
+        assert!(output.contains("export SHCLAP_TEMPLATE=\"default\""));
+    }
+
+    #[test]
+    fn test_subcommand_first_in_output() {
+        let parsed = make_parsed_map(&[("verbose", ParsedValue::Single("true".to_string()))]);
+        let output = generate_output_string(&parsed, "SHCLAP_", Some("run"));
+
+        // Subcommand should be first
+        let subcmd_pos = output.find("SUBCOMMAND").unwrap();
+        let verbose_pos = output.find("VERBOSE").unwrap();
+        assert!(subcmd_pos < verbose_pos);
+    }
+
+    #[test]
+    fn test_mixed_single_and_multiple() {
+        let parsed = make_parsed_map(&[
+            ("verbose", ParsedValue::Single("true".to_string())),
+            (
+                "files",
+                ParsedValue::Multiple(vec!["a.txt".to_string(), "b.txt".to_string()]),
+            ),
+        ]);
+        let output = generate_output_string(&parsed, "SHCLAP_", None);
+
+        assert!(output.contains("export SHCLAP_VERBOSE=\"true\""));
+        assert!(output.contains("export SHCLAP_FILES=(\"a.txt\" \"b.txt\")"));
     }
 
     #[test]

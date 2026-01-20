@@ -9,11 +9,14 @@ pub mod help;
 pub mod output;
 pub mod parser;
 
-pub use config::{ArgConfig, ArgType, Config, ConfigError, CURRENT_SCHEMA_VERSION};
+pub use config::{
+    ArgConfig, ArgType, Config, ConfigError, SubcommandConfig, MAX_SCHEMA_VERSION,
+    MIN_SCHEMA_VERSION,
+};
 pub use help::{generate_help, generate_version};
 pub use output::{
     generate_error_output, generate_error_string, generate_help_output,
-    generate_help_output_string, generate_output, generate_output_string, generate_version_output,
-    generate_version_output_string,
+    generate_help_output_string, generate_output, generate_output_string,
+    generate_output_string_legacy, generate_version_output, generate_version_output_string,
 };
-pub use parser::{parse_args, ParseError, ParseOutcome, ParseResult};
+pub use parser::{parse_args, ParseError, ParseOutcome, ParseResult, ParseSuccess, ParsedValue};

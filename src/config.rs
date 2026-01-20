@@ -3,8 +3,10 @@
 use serde::Deserialize;
 use thiserror::Error;
 
-/// The currently supported schema version.
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+/// The minimum supported schema version.
+pub const MIN_SCHEMA_VERSION: u32 = 1;
+/// The maximum supported schema version.
+pub const MAX_SCHEMA_VERSION: u32 = 2;
 
 /// Errors that can occur during config parsing and validation.
 #[derive(Debug, Error)]
@@ -21,8 +23,22 @@ pub enum ConfigError {
     #[error("argument '{0}' has no short or long option and is not positional")]
     NoOptionSpecified(String),
 
-    #[error("unsupported schema version {0} (supported: 1)")]
+    #[error("unsupported schema version {0} (supported: 1-2)")]
     UnsupportedSchemaVersion(u32),
+
+    #[error("field '{0}' on argument '{1}' requires schema_version >= 2")]
+    FieldRequiresV2(String, String),
+
+    #[error("subcommands require schema_version >= 2")]
+    SubcommandsRequireV2,
+
+    #[error("duplicate subcommand name: {0}")]
+    DuplicateSubcommandName(String),
+
+    #[error(
+        "invalid num_args format '{0}': expected a number or range like '1..', '2..5', or '1..=3'"
+    )]
+    InvalidNumArgsFormat(String),
 }
 
 /// The type of argument.
@@ -56,6 +72,29 @@ pub struct ArgConfig {
     pub default: Option<String>,
     /// Help text for this argument
     pub help: Option<String>,
+
+    // Schema version 2 fields:
+    /// Environment variable to use as fallback (schema_version >= 2)
+    pub env: Option<String>,
+    /// Allow multiple occurrences/values (schema_version >= 2)
+    #[serde(default)]
+    pub multiple: bool,
+    /// Value count range like "1..", "2..5", "1..=3" (schema_version >= 2)
+    pub num_args: Option<String>,
+    /// Split single value by this delimiter (schema_version >= 2)
+    pub delimiter: Option<char>,
+}
+
+/// Configuration for a subcommand (schema_version >= 2).
+#[derive(Debug, Clone, Deserialize)]
+pub struct SubcommandConfig {
+    /// The name of the subcommand
+    pub name: String,
+    /// Help text for this subcommand
+    pub help: Option<String>,
+    /// Arguments for this subcommand
+    #[serde(default)]
+    pub args: Vec<ArgConfig>,
 }
 
 fn default_schema_version() -> u32 {
@@ -79,6 +118,9 @@ pub struct Config {
     /// List of argument configurations
     #[serde(default)]
     pub args: Vec<ArgConfig>,
+    /// Subcommands (schema_version >= 2)
+    #[serde(default)]
+    pub subcommands: Vec<SubcommandConfig>,
 }
 
 impl Config {
@@ -93,8 +135,18 @@ impl Config {
         use std::collections::HashSet;
 
         // Validate schema version
-        if self.schema_version != CURRENT_SCHEMA_VERSION {
+        if self.schema_version < MIN_SCHEMA_VERSION || self.schema_version > MAX_SCHEMA_VERSION {
             return Err(ConfigError::UnsupportedSchemaVersion(self.schema_version));
+        }
+
+        // Check for v2 fields when using schema_version 1
+        if self.schema_version < 2 {
+            if !self.subcommands.is_empty() {
+                return Err(ConfigError::SubcommandsRequireV2);
+            }
+            for arg in &self.args {
+                Self::validate_no_v2_fields(arg)?;
+            }
         }
 
         let mut names = HashSet::new();
@@ -105,16 +157,77 @@ impl Config {
                 return Err(ConfigError::DuplicateName(arg.name.clone()));
             }
 
-            // Validate short option
-            if let Some(short) = arg.short {
-                if !short.is_ascii_alphabetic() {
-                    return Err(ConfigError::InvalidShortOption(short.to_string()));
+            Self::validate_arg(arg, self.schema_version)?;
+        }
+
+        // Validate subcommands
+        if self.schema_version >= 2 {
+            let mut subcmd_names = HashSet::new();
+            for subcmd in &self.subcommands {
+                if !subcmd_names.insert(&subcmd.name) {
+                    return Err(ConfigError::DuplicateSubcommandName(subcmd.name.clone()));
+                }
+
+                let mut subcmd_arg_names = HashSet::new();
+                for arg in &subcmd.args {
+                    if !subcmd_arg_names.insert(&arg.name) {
+                        return Err(ConfigError::DuplicateName(arg.name.clone()));
+                    }
+                    Self::validate_arg(arg, self.schema_version)?;
                 }
             }
+        }
 
-            // For non-positional args, ensure at least short or long is specified
-            if arg.arg_type != ArgType::Positional && arg.short.is_none() && arg.long.is_none() {
-                return Err(ConfigError::NoOptionSpecified(arg.name.clone()));
+        Ok(())
+    }
+
+    /// Validate that an argument doesn't use v2-only fields.
+    fn validate_no_v2_fields(arg: &ArgConfig) -> Result<(), ConfigError> {
+        if arg.env.is_some() {
+            return Err(ConfigError::FieldRequiresV2(
+                "env".to_string(),
+                arg.name.clone(),
+            ));
+        }
+        if arg.multiple {
+            return Err(ConfigError::FieldRequiresV2(
+                "multiple".to_string(),
+                arg.name.clone(),
+            ));
+        }
+        if arg.num_args.is_some() {
+            return Err(ConfigError::FieldRequiresV2(
+                "num_args".to_string(),
+                arg.name.clone(),
+            ));
+        }
+        if arg.delimiter.is_some() {
+            return Err(ConfigError::FieldRequiresV2(
+                "delimiter".to_string(),
+                arg.name.clone(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validate a single argument configuration.
+    fn validate_arg(arg: &ArgConfig, schema_version: u32) -> Result<(), ConfigError> {
+        // Validate short option
+        if let Some(short) = arg.short {
+            if !short.is_ascii_alphabetic() {
+                return Err(ConfigError::InvalidShortOption(short.to_string()));
+            }
+        }
+
+        // For non-positional args, ensure at least short or long is specified
+        if arg.arg_type != ArgType::Positional && arg.short.is_none() && arg.long.is_none() {
+            return Err(ConfigError::NoOptionSpecified(arg.name.clone()));
+        }
+
+        // Validate num_args format (schema v2)
+        if schema_version >= 2 {
+            if let Some(ref num_args) = arg.num_args {
+                validate_num_args_format(num_args)?;
             }
         }
 
@@ -124,6 +237,49 @@ impl Config {
     /// Get the effective prefix, using the default if none is set.
     pub fn effective_prefix(&self) -> &str {
         self.prefix.as_deref().unwrap_or("SHCLAP_")
+    }
+}
+
+/// Validate num_args format (e.g., "1", "1..", "2..5", "1..=3").
+fn validate_num_args_format(num_args: &str) -> Result<(), ConfigError> {
+    let s = num_args.trim();
+
+    // Single number
+    if s.parse::<usize>().is_ok() {
+        return Ok(());
+    }
+
+    // Range formats: "N..", "N..M", "N..=M"
+    if let Some(idx) = s.find("..") {
+        let start = &s[..idx];
+        let rest = &s[idx + 2..];
+
+        // Start must be a valid number
+        if start.parse::<usize>().is_err() {
+            return Err(ConfigError::InvalidNumArgsFormat(num_args.to_string()));
+        }
+
+        // Rest can be empty (unbounded), a number, or =number
+        if rest.is_empty() {
+            return Ok(());
+        }
+        if rest.parse::<usize>().is_ok() {
+            return Ok(());
+        }
+        if let Some(stripped) = rest.strip_prefix('=') {
+            if stripped.parse::<usize>().is_ok() {
+                return Ok(());
+            }
+        }
+    }
+
+    Err(ConfigError::InvalidNumArgsFormat(num_args.to_string()))
+}
+
+impl ArgConfig {
+    /// Check if this argument uses any v2-only features.
+    pub fn uses_v2_features(&self) -> bool {
+        self.env.is_some() || self.multiple || self.num_args.is_some() || self.delimiter.is_some()
     }
 }
 
@@ -312,5 +468,229 @@ mod tests {
             result,
             Err(ConfigError::UnsupportedSchemaVersion(99))
         ));
+    }
+
+    // Schema version 2 tests
+
+    #[test]
+    fn test_schema_version_2_valid() {
+        let json = r#"{"schema_version": 2, "name": "test"}"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.schema_version, 2);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_schema_v2_env_field() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "input", "long": "input", "type": "option", "env": "INPUT_FILE"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.args[0].env, Some("INPUT_FILE".to_string()));
+    }
+
+    #[test]
+    fn test_schema_v2_multiple_field() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "files", "long": "file", "type": "option", "multiple": true}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+        assert!(config.args[0].multiple);
+    }
+
+    #[test]
+    fn test_schema_v2_num_args_field() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "files", "long": "file", "type": "option", "multiple": true, "num_args": "1.."}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.args[0].num_args, Some("1..".to_string()));
+    }
+
+    #[test]
+    fn test_schema_v2_delimiter_field() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "tags", "long": "tags", "type": "option", "multiple": true, "delimiter": ","}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.args[0].delimiter, Some(','));
+    }
+
+    #[test]
+    fn test_schema_v2_subcommands() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "subcommands": [
+                {
+                    "name": "init",
+                    "help": "Initialize a project",
+                    "args": [
+                        {"name": "template", "type": "positional"}
+                    ]
+                },
+                {
+                    "name": "run",
+                    "help": "Run the project"
+                }
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.subcommands.len(), 2);
+        assert_eq!(config.subcommands[0].name, "init");
+        assert_eq!(
+            config.subcommands[0].help,
+            Some("Initialize a project".to_string())
+        );
+        assert_eq!(config.subcommands[0].args.len(), 1);
+        assert_eq!(config.subcommands[1].name, "run");
+    }
+
+    #[test]
+    fn test_error_v2_field_in_v1_config_env() {
+        let json = r#"{
+            "schema_version": 1,
+            "name": "test",
+            "args": [
+                {"name": "input", "long": "input", "type": "option", "env": "INPUT_FILE"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::FieldRequiresV2(field, _)) if field == "env"));
+    }
+
+    #[test]
+    fn test_error_v2_field_in_v1_config_multiple() {
+        let json = r#"{
+            "schema_version": 1,
+            "name": "test",
+            "args": [
+                {"name": "files", "long": "file", "type": "option", "multiple": true}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::FieldRequiresV2(field, _)) if field == "multiple")
+        );
+    }
+
+    #[test]
+    fn test_error_subcommands_in_v1_config() {
+        let json = r#"{
+            "schema_version": 1,
+            "name": "test",
+            "subcommands": [{"name": "init"}]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::SubcommandsRequireV2)));
+    }
+
+    #[test]
+    fn test_error_duplicate_subcommand_name() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "subcommands": [
+                {"name": "init"},
+                {"name": "init"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::DuplicateSubcommandName(name)) if name == "init")
+        );
+    }
+
+    #[test]
+    fn test_valid_num_args_formats() {
+        let formats = vec![
+            "1", "2", "10", "1..", "2..", "1..3", "2..5", "1..=3", "0..=10",
+        ];
+        for fmt in formats {
+            assert!(
+                validate_num_args_format(fmt).is_ok(),
+                "Expected '{}' to be valid",
+                fmt
+            );
+        }
+    }
+
+    #[test]
+    fn test_invalid_num_args_formats() {
+        let formats = vec!["abc", "..", "..3", "a..b", "1..=", "1..=abc", "-1", "1...3"];
+        for fmt in formats {
+            assert!(
+                validate_num_args_format(fmt).is_err(),
+                "Expected '{}' to be invalid",
+                fmt
+            );
+        }
+    }
+
+    #[test]
+    fn test_uses_v2_features() {
+        let v1_arg = ArgConfig {
+            name: "test".to_string(),
+            short: Some('t'),
+            long: None,
+            arg_type: ArgType::Flag,
+            required: false,
+            default: None,
+            help: None,
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
+        };
+        assert!(!v1_arg.uses_v2_features());
+
+        let v2_arg_env = ArgConfig {
+            env: Some("TEST".to_string()),
+            ..v1_arg.clone()
+        };
+        assert!(v2_arg_env.uses_v2_features());
+
+        let v2_arg_multiple = ArgConfig {
+            multiple: true,
+            ..v1_arg.clone()
+        };
+        assert!(v2_arg_multiple.uses_v2_features());
+
+        let v2_arg_num_args = ArgConfig {
+            num_args: Some("1..".to_string()),
+            ..v1_arg.clone()
+        };
+        assert!(v2_arg_num_args.uses_v2_features());
+
+        let v2_arg_delimiter = ArgConfig {
+            delimiter: Some(','),
+            ..v1_arg.clone()
+        };
+        assert!(v2_arg_delimiter.uses_v2_features());
     }
 }
