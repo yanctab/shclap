@@ -215,11 +215,11 @@ Each task follows this workflow:
 ---
 
 ## Final Verification
-- [ ] `make setup-build-env` installs all dependencies
-- [ ] `make check` passes (fmt + lint + test)
-- [ ] `make release` builds static musl binary
-- [ ] `make install` works
-- [ ] `make deb` produces valid .deb package
+- ~~`make setup-build-env` installs all dependencies~~
+- ~~`make check` passes (fmt + lint + test)~~
+- ~~`make release` builds static musl binary~~
+- ~~`make install` works~~
+- ~~`make deb` produces valid .deb package~~
 - [ ] CI pipeline passes on PR
 - [ ] Release pipeline produces artifacts on tag push
-- [ ] Manual verification with real shell script
+- ~~Manual verification with real shell script~~
