@@ -197,20 +197,20 @@ Each task follows this workflow:
 ## Phase 5 - GitHub Actions
 
 ### CI Pipeline (`.github/workflows/ci.yml`)
-- [ ] Trigger on: pull_request, push to main
-- [ ] Use locked Rust version from rust-toolchain.toml
-- [ ] Job: cargo fmt --check
-- [ ] Job: cargo clippy -- -D warnings
-- [ ] Job: cargo test
-- [ ] Cache cargo registry and target directory
+- ~~Trigger on: pull_request, push to main~~
+- ~~Use locked Rust version from rust-toolchain.toml~~
+- ~~Job: cargo fmt --check~~
+- ~~Job: cargo clippy -- -D warnings~~
+- ~~Job: cargo test~~
+- ~~Cache cargo registry and target directory~~
 
 ### Release Pipeline (`.github/workflows/release.yml`)
-- [ ] Trigger on: push tags `v*`
-- [ ] Install musl toolchain (x86_64-unknown-linux-musl)
-- [ ] Build static binary with musl
-- [ ] Build .deb package
-- [ ] Create GitHub Release (auto-generate notes from commits)
-- [ ] Upload artifacts: static binary + .deb package
+- ~~Trigger on: push tags `v*`~~
+- ~~Install musl toolchain (x86_64-unknown-linux-musl)~~
+- ~~Build static binary with musl~~
+- ~~Build .deb package~~
+- ~~Create GitHub Release (auto-generate notes from commits)~~
+- ~~Upload artifacts: static binary + .deb package~~
 
 ---
 
