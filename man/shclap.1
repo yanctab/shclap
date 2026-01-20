@@ -106,8 +106,8 @@ The JSON configuration defines the script's command-line interface:
 .SS "Top-Level Fields"
 .TP
 .B schema_version
-Schema version number. Optional, defaults to 1. Currently only version 1
-is supported.
+Schema version number. Optional, defaults to 1. Set to 2 to enable extended
+features like environment variable fallback, multiple values, and subcommands.
 .TP
 .B name
 Script name. Required. Used in help output.
@@ -157,6 +157,61 @@ Default value if not provided. Optional.
 .TP
 .B help
 Help text for this argument. Optional.
+.SS "Schema Version 2 Argument Fields"
+Set schema_version to 2 to enable these additional argument fields:
+.TP
+.B env
+Environment variable name to use as fallback value. If the argument is not
+provided on the command line, shclap checks this environment variable.
+.TP
+.B multiple
+Boolean. Allow multiple occurrences of this argument. Output as bash array.
+For flags, counts occurrences (e.g., \-vvv sets variable to "3").
+.TP
+.B num_args
+Value count per occurrence. Examples: "2" (exactly 2), "1.." (1 or more),
+"1..3" (1 to 3), "1..=3" (1 to 3 inclusive).
+.TP
+.B delimiter
+Character to split a single value into multiple. E.g., "," splits
+"a,b,c" into ("a" "b" "c").
+.SS "Subcommands (Schema Version 2)"
+.TP
+.B subcommands
+Top-level array of subcommand definitions. When subcommands are defined, one must be
+provided. Each subcommand has:
+.RS
+.TP
+.B name
+Subcommand name (required).
+.TP
+.B help
+Help text for the subcommand (optional).
+.TP
+.B args
+Array of argument definitions for this subcommand (optional).
+.RE
+.SH OUTPUT FORMAT
+.SS "Scalar Values"
+Single values are exported as quoted strings:
+.PP
+.RS
+export SHCLAP_OUTPUT="value"
+.RE
+.SS "Array Values (Schema Version 2)"
+Multiple values are exported as bash arrays:
+.PP
+.RS
+export SHCLAP_FILES=("file1.txt" "file2.txt")
+.RE
+.PP
+Access array elements with ${VAR[@]} or ${VAR[0]}, ${VAR[1]}, etc.
+.SS "Subcommand Name (Schema Version 2)"
+When subcommands are used, the selected subcommand is exported:
+.PP
+.RS
+export SHCLAP_SUBCOMMAND="init"
+.RE
 .SH BUILT-IN FLAGS
 The following flags are automatically handled by shclap during parsing:
 .TP
@@ -219,6 +274,64 @@ source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
 
 [[ "$BACKUP_VERBOSE" == "true" ]] && echo "Backing up $BACKUP_SOURCE to $BACKUP_DEST"
 # ... rest of script
+.fi
+.RE
+.SS "Environment Variable Fallback (Schema V2)"
+.PP
+.RS
+.nf
+#!/bin/bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "deploy",
+  "args": [
+    {"name": "token", "long": "token", "type": "option", "env": "DEPLOY_TOKEN",
+     "required": true, "help": "API token"}
+  ]
+}'
+source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+# $SHCLAP_TOKEN comes from \-\-token or $DEPLOY_TOKEN
+.fi
+.RE
+.SS "Multiple Values (Schema V2)"
+.PP
+.RS
+.nf
+#!/bin/bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "process",
+  "args": [
+    {"name": "files", "long": "file", "type": "option", "multiple": true,
+     "help": "Files to process"}
+  ]
+}'
+source $(shclap parse \-\-config "$CONFIG" \-\- \-\-file a.txt \-\-file b.txt)
+for f in "${SHCLAP_FILES[@]}"; do
+  echo "Processing $f"
+done
+.fi
+.RE
+.SS "Subcommands (Schema V2)"
+.PP
+.RS
+.nf
+#!/bin/bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "project",
+  "subcommands": [
+    {"name": "init", "help": "Initialize project",
+     "args": [{"name": "template", "type": "positional", "default": "default"}]},
+    {"name": "build", "help": "Build project",
+     "args": [{"name": "release", "short": "r", "type": "flag"}]}
+  ]
+}'
+source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+case "$SHCLAP_SUBCOMMAND" in
+  init) echo "Template: $SHCLAP_TEMPLATE" ;;
+  build) [[ "$SHCLAP_RELEASE" == "true" ]] && echo "Release build" ;;
+esac
 .fi
 .RE
 .SH SEE ALSO
