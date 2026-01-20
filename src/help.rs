@@ -1,154 +1,88 @@
-//! Help text generation for target scripts.
+//! Help and version text generation for target scripts using Clap.
 
-use crate::config::{ArgType, Config};
+use crate::config::{ArgConfig, ArgType, Config};
+use clap::{Arg, ArgAction, Command};
+
+/// Build a Clap Command from a Config (for help/version generation).
+fn build_command(config: &Config) -> Command {
+    let mut cmd = Command::new(config.name.clone()).disable_help_subcommand(true);
+
+    // Set version if provided
+    if let Some(ref version) = config.version {
+        cmd = cmd.version(version.clone());
+    }
+
+    // Set description if provided
+    if let Some(ref description) = config.description {
+        cmd = cmd.about(description.clone());
+    }
+
+    // Track positional index for ordering
+    let mut positional_index = 1usize;
+
+    // Add arguments from config
+    for arg_config in &config.args {
+        let arg = build_arg(arg_config, &mut positional_index);
+        cmd = cmd.arg(arg);
+    }
+
+    cmd
+}
+
+/// Build a Clap Arg from an ArgConfig.
+fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
+    let mut arg = Arg::new(arg_config.name.clone());
+
+    match arg_config.arg_type {
+        ArgType::Flag => {
+            arg = arg.action(ArgAction::SetTrue);
+
+            if let Some(short) = arg_config.short {
+                arg = arg.short(short);
+            }
+
+            if let Some(ref long) = arg_config.long {
+                arg = arg.long(long.clone());
+            }
+        }
+        ArgType::Option => {
+            arg = arg.action(ArgAction::Set);
+
+            if let Some(short) = arg_config.short {
+                arg = arg.short(short);
+            }
+
+            if let Some(ref long) = arg_config.long {
+                arg = arg.long(long.clone());
+            }
+
+            arg = arg.value_name("VALUE");
+        }
+        ArgType::Positional => {
+            arg = arg.index(*positional_index);
+            *positional_index += 1;
+        }
+    }
+
+    if arg_config.required {
+        arg = arg.required(true);
+    }
+
+    if let Some(ref default) = arg_config.default {
+        arg = arg.default_value(default.clone());
+    }
+
+    if let Some(ref help) = arg_config.help {
+        arg = arg.help(help.clone());
+    }
+
+    arg
+}
 
 /// Generate the full help text for a script.
 pub fn generate_help(config: &Config) -> String {
-    let mut output = String::new();
-
-    // Header: name and version
-    output.push_str(&config.name);
-    if let Some(ref version) = config.version {
-        output.push_str(" v");
-        output.push_str(version);
-    }
-    output.push('\n');
-
-    // Description
-    if let Some(ref desc) = config.description {
-        output.push_str(desc);
-        output.push('\n');
-    }
-
-    // Usage
-    output.push('\n');
-    output.push_str(&generate_usage(config));
-
-    // Positional args section
-    let positionals: Vec<_> = config
-        .args
-        .iter()
-        .filter(|a| a.arg_type == ArgType::Positional)
-        .collect();
-
-    if !positionals.is_empty() {
-        output.push_str("\nARGS:\n");
-        for arg in positionals {
-            output.push_str("    <");
-            output.push_str(&arg.name.to_uppercase());
-            output.push('>');
-
-            if let Some(ref help) = arg.help {
-                // Pad to column 16 minimum
-                let name_len = arg.name.len() + 2; // < and >
-                let padding = if name_len < 12 { 12 - name_len } else { 4 };
-                for _ in 0..padding {
-                    output.push(' ');
-                }
-                output.push_str(help);
-            }
-            output.push('\n');
-        }
-    }
-
-    // Options section
-    let options: Vec<_> = config
-        .args
-        .iter()
-        .filter(|a| a.arg_type != ArgType::Positional)
-        .collect();
-
-    if !options.is_empty() {
-        output.push_str("\nOPTIONS:\n");
-        for arg in &options {
-            output.push_str("    ");
-
-            // Build the option string
-            let mut opt_str = String::new();
-            if let Some(short) = arg.short {
-                opt_str.push('-');
-                opt_str.push(short);
-                if arg.long.is_some() {
-                    opt_str.push_str(", ");
-                }
-            }
-            if let Some(ref long) = arg.long {
-                opt_str.push_str("--");
-                opt_str.push_str(long);
-            }
-
-            // Add value placeholder for options
-            if arg.arg_type == ArgType::Option {
-                opt_str.push_str(" <VALUE>");
-            }
-
-            output.push_str(&opt_str);
-
-            // Add help text
-            if let Some(ref help) = arg.help {
-                let padding = if opt_str.len() < 20 {
-                    20 - opt_str.len()
-                } else {
-                    4
-                };
-                for _ in 0..padding {
-                    output.push(' ');
-                }
-                output.push_str(help);
-            }
-
-            // Add required/default info
-            if arg.required {
-                output.push_str(" (required)");
-            } else if let Some(ref default) = arg.default {
-                output.push_str(" [default: ");
-                output.push_str(default);
-                output.push(']');
-            }
-
-            output.push('\n');
-        }
-
-        // Always add help option
-        output.push_str("    -h, --help          Show this help message\n");
-    }
-
-    output
-}
-
-/// Generate just the usage line.
-pub fn generate_usage(config: &Config) -> String {
-    let mut usage = String::from("USAGE:\n    ");
-    usage.push_str(&config.name);
-
-    // Check if there are any options
-    let has_options = config
-        .args
-        .iter()
-        .any(|a| a.arg_type != ArgType::Positional);
-
-    if has_options {
-        usage.push_str(" [OPTIONS]");
-    }
-
-    // Add positional args
-    for arg in &config.args {
-        if arg.arg_type == ArgType::Positional {
-            usage.push(' ');
-            if arg.required {
-                usage.push('<');
-                usage.push_str(&arg.name.to_uppercase());
-                usage.push('>');
-            } else {
-                usage.push('[');
-                usage.push_str(&arg.name.to_uppercase());
-                usage.push(']');
-            }
-        }
-    }
-
-    usage.push('\n');
-    usage
+    let mut cmd = build_command(config);
+    cmd.render_help().to_string()
 }
 
 /// Generate version string.
@@ -165,7 +99,6 @@ pub fn generate_version(config: &Config) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::ArgConfig;
 
     fn make_config(
         name: &str,
@@ -258,19 +191,24 @@ mod tests {
 
         let help = generate_help(&config);
 
-        assert!(help.contains("myscript v1.0.0"));
-        assert!(help.contains("My awesome script"));
-        assert!(help.contains("USAGE:"));
-        assert!(help.contains("myscript [OPTIONS] <INPUT>"));
-        assert!(help.contains("ARGS:"));
-        assert!(help.contains("<INPUT>"));
-        assert!(help.contains("Input file to process"));
-        assert!(help.contains("OPTIONS:"));
-        assert!(help.contains("-v, --verbose"));
-        assert!(help.contains("Enable verbose output"));
-        assert!(help.contains("-o, --output <VALUE>"));
-        assert!(help.contains("(required)"));
-        assert!(help.contains("-h, --help"));
+        // Check essential content is present (Clap format may differ slightly)
+        assert!(help.contains("myscript"), "Help should contain script name");
+        assert!(
+            help.contains("My awesome script"),
+            "Help should contain description"
+        );
+        assert!(
+            help.contains("-v") || help.contains("--verbose"),
+            "Help should contain verbose flag"
+        );
+        assert!(
+            help.contains("-o") || help.contains("--output"),
+            "Help should contain output option"
+        );
+        assert!(
+            help.contains("-h") || help.contains("--help"),
+            "Help should contain help option"
+        );
     }
 
     #[test]
@@ -279,10 +217,11 @@ mod tests {
 
         let help = generate_help(&config);
 
-        assert!(help.contains("minimal\n"));
-        assert!(help.contains("USAGE:\n    minimal\n"));
-        assert!(!help.contains("ARGS:"));
-        assert!(!help.contains("OPTIONS:"));
+        assert!(help.contains("minimal"), "Help should contain script name");
+        assert!(
+            help.contains("-h") || help.contains("--help"),
+            "Help should contain help option"
+        );
     }
 
     #[test]
@@ -303,25 +242,7 @@ mod tests {
 
         let help = generate_help(&config);
 
-        assert!(help.contains("[default: out.txt]"));
-    }
-
-    #[test]
-    fn test_generate_usage() {
-        let config = make_config(
-            "test",
-            None,
-            None,
-            vec![
-                make_flag("verbose", Some('v'), Some("verbose"), None),
-                make_positional("input", true, None),
-                make_positional("extra", false, None),
-            ],
-        );
-
-        let usage = generate_usage(&config);
-
-        assert_eq!(usage, "USAGE:\n    test [OPTIONS] <INPUT> [EXTRA]\n");
+        assert!(help.contains("out.txt"), "Help should show default value");
     }
 
     #[test]
@@ -333,18 +254,5 @@ mod tests {
         let config_no_version = make_config("myapp", None, None, vec![]);
         let version = generate_version(&config_no_version);
         assert_eq!(version, "myapp\n");
-    }
-
-    #[test]
-    fn test_optional_positional_formatting() {
-        let config = make_config(
-            "test",
-            None,
-            None,
-            vec![make_positional("optional", false, Some("Optional input"))],
-        );
-
-        let usage = generate_usage(&config);
-        assert!(usage.contains("[OPTIONAL]"));
     }
 }

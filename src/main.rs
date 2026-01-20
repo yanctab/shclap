@@ -60,7 +60,7 @@ fn main() -> Result<()> {
             let cfg = match Config::from_json(&config) {
                 Ok(c) => c,
                 Err(e) => {
-                    return output_error(&e.to_string());
+                    return output_error(&format!("failed to parse JSON config: {}", e));
                 }
             };
 
@@ -73,25 +73,23 @@ fn main() -> Result<()> {
 
             // Handle parse result
             match parse_args(&cfg, &args) {
-                Ok(ParseOutcome::Success(parsed)) => {
+                ParseOutcome::Success(parsed) => {
                     let path = generate_output(&parsed, effective_prefix)
                         .context("failed to generate output file")?;
                     println!("{}", path.display());
                 }
-                Ok(ParseOutcome::Help) => {
-                    let help_text = generate_help(&cfg);
+                ParseOutcome::Help(help_text) => {
                     let path = generate_help_output(&help_text)
                         .context("failed to generate help output file")?;
                     println!("{}", path.display());
                 }
-                Ok(ParseOutcome::Version) => {
-                    let version_text = generate_version(&cfg);
+                ParseOutcome::Version(version_text) => {
                     let path = generate_version_output(&version_text)
                         .context("failed to generate version output file")?;
                     println!("{}", path.display());
                 }
-                Err(e) => {
-                    return output_error(&e.to_string());
+                ParseOutcome::Error(error_msg) => {
+                    return output_error(&error_msg);
                 }
             }
         }
