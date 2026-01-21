@@ -23,6 +23,10 @@ enum Commands {
         #[arg(long)]
         config: String,
 
+        /// Application name (overrides config 'name' field)
+        #[arg(long)]
+        name: Option<String>,
+
         /// Environment variable prefix (overrides config)
         #[arg(long)]
         prefix: Option<String>,
@@ -37,6 +41,10 @@ enum Commands {
         /// JSON configuration for the target script
         #[arg(long)]
         config: String,
+
+        /// Application name (overrides config 'name' field)
+        #[arg(long)]
+        name: Option<String>,
     },
 
     /// Print version of the target script
@@ -44,6 +52,10 @@ enum Commands {
         /// JSON configuration for the target script
         #[arg(long)]
         config: String,
+
+        /// Application name (overrides config 'name' field)
+        #[arg(long)]
+        name: Option<String>,
     },
 }
 
@@ -53,6 +65,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Parse {
             config,
+            name,
             prefix,
             args,
         } => {
@@ -69,10 +82,21 @@ fn main() -> Result<()> {
                 return output_error(&e.to_string());
             }
 
+            // Determine effective name: CLI --name takes priority over config name
+            let effective_name = match (name.as_deref(), cfg.name.as_deref()) {
+                (Some(cli_name), _) => cli_name,
+                (None, Some(config_name)) => config_name,
+                (None, None) => {
+                    return output_error(
+                        "no application name provided: use --name or set 'name' in config",
+                    );
+                }
+            };
+
             let effective_prefix = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
 
             // Handle parse result
-            match parse_args(&cfg, &args) {
+            match parse_args(&cfg, &args, effective_name) {
                 ParseOutcome::Success(result) => {
                     let path = generate_output(
                         &result.values,
@@ -97,13 +121,37 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Help { config } => {
+        Commands::Help { config, name } => {
             let cfg = Config::from_json(&config).context("failed to parse config JSON")?;
-            print!("{}", generate_help(&cfg));
+
+            // Determine effective name: CLI --name takes priority over config name
+            let effective_name = match (name.as_deref(), cfg.name.as_deref()) {
+                (Some(cli_name), _) => cli_name.to_string(),
+                (None, Some(config_name)) => config_name.to_string(),
+                (None, None) => {
+                    anyhow::bail!(
+                        "no application name provided: use --name or set 'name' in config"
+                    );
+                }
+            };
+
+            print!("{}", generate_help(&cfg, &effective_name));
         }
-        Commands::Version { config } => {
+        Commands::Version { config, name } => {
             let cfg = Config::from_json(&config).context("failed to parse config JSON")?;
-            print!("{}", generate_version(&cfg));
+
+            // Determine effective name: CLI --name takes priority over config name
+            let effective_name = match (name.as_deref(), cfg.name.as_deref()) {
+                (Some(cli_name), _) => cli_name.to_string(),
+                (None, Some(config_name)) => config_name.to_string(),
+                (None, None) => {
+                    anyhow::bail!(
+                        "no application name provided: use --name or set 'name' in config"
+                    );
+                }
+            };
+
+            print!("{}", generate_version(&cfg, &effective_name));
         }
     }
 
@@ -139,10 +187,12 @@ mod tests {
         match cli.command {
             Commands::Parse {
                 config,
+                name,
                 prefix,
                 args,
             } => {
                 assert_eq!(config, r#"{"name":"test"}"#);
+                assert!(name.is_none());
                 assert!(prefix.is_none());
                 assert!(args.is_empty());
             }
@@ -164,8 +214,24 @@ mod tests {
         .unwrap();
 
         match cli.command {
-            Commands::Parse { prefix, .. } => {
+            Commands::Parse { name, prefix, .. } => {
+                assert!(name.is_none());
                 assert_eq!(prefix, Some("MYAPP_".to_string()));
+            }
+            _ => panic!("Expected Parse command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_subcommand_parses_name() {
+        let cli = Cli::try_parse_from([
+            "shclap", "parse", "--config", r#"{}"#, "--name", "myapp", "--",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Parse { name, .. } => {
+                assert_eq!(name, Some("myapp".to_string()));
             }
             _ => panic!("Expected Parse command"),
         }
@@ -211,8 +277,30 @@ mod tests {
         .unwrap();
 
         match cli.command {
-            Commands::Help { config } => {
+            Commands::Help { config, name } => {
                 assert_eq!(config, r#"{"name":"test","description":"A test"}"#);
+                assert!(name.is_none());
+            }
+            _ => panic!("Expected Help command"),
+        }
+    }
+
+    #[test]
+    fn test_help_subcommand_with_name() {
+        let cli = Cli::try_parse_from([
+            "shclap",
+            "help",
+            "--config",
+            r#"{"description":"A test"}"#,
+            "--name",
+            "myapp",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Help { config, name } => {
+                assert_eq!(config, r#"{"description":"A test"}"#);
+                assert_eq!(name, Some("myapp".to_string()));
             }
             _ => panic!("Expected Help command"),
         }
@@ -229,8 +317,30 @@ mod tests {
         .unwrap();
 
         match cli.command {
-            Commands::Version { config } => {
+            Commands::Version { config, name } => {
                 assert_eq!(config, r#"{"name":"test","version":"1.0.0"}"#);
+                assert!(name.is_none());
+            }
+            _ => panic!("Expected Version command"),
+        }
+    }
+
+    #[test]
+    fn test_version_subcommand_with_name() {
+        let cli = Cli::try_parse_from([
+            "shclap",
+            "version",
+            "--config",
+            r#"{"version":"1.0.0"}"#,
+            "--name",
+            "myapp",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Version { config, name } => {
+                assert_eq!(config, r#"{"version":"1.0.0"}"#);
+                assert_eq!(name, Some("myapp".to_string()));
             }
             _ => panic!("Expected Version command"),
         }
@@ -264,6 +374,7 @@ mod tests {
         match cli.command {
             Commands::Parse {
                 config,
+                name: _,
                 prefix,
                 args: _,
             } => {
@@ -289,6 +400,7 @@ mod tests {
         match cli.command {
             Commands::Parse {
                 config,
+                name: _,
                 prefix,
                 args: _,
             } => {
@@ -308,12 +420,57 @@ mod tests {
         match cli.command {
             Commands::Parse {
                 config,
+                name: _,
                 prefix,
                 args: _,
             } => {
                 let cfg = Config::from_json(&config).unwrap();
                 let effective = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
                 assert_eq!(effective, "SHCLAP_");
+            }
+            _ => panic!("Expected Parse command"),
+        }
+    }
+
+    #[test]
+    fn test_name_priority_cli_overrides_config() {
+        let cli = Cli::try_parse_from([
+            "shclap",
+            "parse",
+            "--config",
+            r#"{"name":"config_name"}"#,
+            "--name",
+            "cli_name",
+            "--",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Parse { config, name, .. } => {
+                let cfg = Config::from_json(&config).unwrap();
+                let effective = name.as_deref().or(cfg.name.as_deref()).unwrap();
+                assert_eq!(effective, "cli_name");
+            }
+            _ => panic!("Expected Parse command"),
+        }
+    }
+
+    #[test]
+    fn test_name_priority_config_when_no_cli() {
+        let cli = Cli::try_parse_from([
+            "shclap",
+            "parse",
+            "--config",
+            r#"{"name":"config_name"}"#,
+            "--",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Parse { config, name, .. } => {
+                let cfg = Config::from_json(&config).unwrap();
+                let effective = name.as_deref().or(cfg.name.as_deref()).unwrap();
+                assert_eq!(effective, "config_name");
             }
             _ => panic!("Expected Parse command"),
         }

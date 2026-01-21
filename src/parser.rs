@@ -68,9 +68,9 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-/// Build a Clap Command from a Config.
-fn build_command(config: &Config) -> Command {
-    let mut cmd = Command::new(config.name.clone())
+/// Build a Clap Command from a Config with an effective name.
+fn build_command(config: &Config, effective_name: &str) -> Command {
+    let mut cmd = Command::new(effective_name.to_string())
         .disable_help_subcommand(true)
         .disable_version_flag(false)
         .disable_help_flag(false);
@@ -147,9 +147,9 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
                 arg = arg.short(short);
             }
 
-            // Add long option
-            if let Some(ref long) = arg_config.long {
-                arg = arg.long(long.clone());
+            // Add long option (with fallback to name if neither short nor long specified)
+            if let Some(long) = arg_config.effective_long() {
+                arg = arg.long(long.to_string());
             }
         }
         ArgType::Option => {
@@ -165,9 +165,9 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
                 arg = arg.short(short);
             }
 
-            // Add long option
-            if let Some(ref long) = arg_config.long {
-                arg = arg.long(long.clone());
+            // Add long option (with fallback to name if neither short nor long specified)
+            if let Some(long) = arg_config.effective_long() {
+                arg = arg.long(long.to_string());
             }
 
             // Set value name for help display
@@ -306,15 +306,17 @@ fn extract_values(args: &[ArgConfig], matches: &clap::ArgMatches) -> HashMap<Str
 
 /// Parse command-line arguments according to the config.
 ///
+/// The `effective_name` parameter is the program name to use (from CLI --name or config name).
+///
 /// Returns `ParseOutcome::Help` if -h/--help is found.
 /// Returns `ParseOutcome::Version` if -V/--version is found.
 /// Returns `ParseOutcome::Success` with parsed values on success.
 /// Returns `ParseOutcome::Error` on parse errors.
-pub fn parse_args(config: &Config, args: &[String]) -> ParseOutcome {
-    let cmd = build_command(config);
+pub fn parse_args(config: &Config, args: &[String], effective_name: &str) -> ParseOutcome {
+    let cmd = build_command(config, effective_name);
 
     // Prepend program name since Clap expects args[0] to be the program name
-    let mut full_args = vec![config.name.clone()];
+    let mut full_args = vec![effective_name.to_string()];
     full_args.extend(args.iter().cloned());
 
     match cmd.try_get_matches_from(&full_args) {
@@ -426,8 +428,13 @@ mod tests {
         Config::from_json(json).unwrap()
     }
 
-    fn args(s: &[&str]) -> Vec<String> {
+    fn to_args(s: &[&str]) -> Vec<String> {
         s.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Get the effective name from config, defaulting to "test".
+    fn get_name(config: &Config) -> &str {
+        config.name.as_deref().unwrap_or("test")
     }
 
     /// Helper to unwrap success and convert to simple string map for existing tests.
@@ -457,7 +464,11 @@ mod tests {
                 {"name":"verbose","long":"verbose","type":"flag"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["--verbose"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--verbose"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("verbose"), Some(&"true".to_string()));
     }
 
@@ -468,7 +479,7 @@ mod tests {
                 {"name":"verbose","short":"v","type":"flag"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["-v"])));
+        let result = unwrap_success(parse_args(&config, &to_args(&["-v"]), get_name(&config)));
         assert_eq!(result.get("verbose"), Some(&"true".to_string()));
     }
 
@@ -479,7 +490,7 @@ mod tests {
                 {"name":"verbose","short":"v","type":"flag"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&[])));
+        let result = unwrap_success(parse_args(&config, &to_args(&[]), get_name(&config)));
         assert_eq!(result.get("verbose"), Some(&"false".to_string()));
     }
 
@@ -492,7 +503,7 @@ mod tests {
                 {"name":"c","short":"c","type":"flag"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["-abc"])));
+        let result = unwrap_success(parse_args(&config, &to_args(&["-abc"]), get_name(&config)));
         assert_eq!(result.get("a"), Some(&"true".to_string()));
         assert_eq!(result.get("b"), Some(&"true".to_string()));
         assert_eq!(result.get("c"), Some(&"true".to_string()));
@@ -505,7 +516,11 @@ mod tests {
                 {"name":"output","long":"output","type":"option"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["--output", "file.txt"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--output", "file.txt"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
 
@@ -516,7 +531,11 @@ mod tests {
                 {"name":"output","long":"output","type":"option"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["--output=file.txt"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--output=file.txt"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
 
@@ -527,7 +546,11 @@ mod tests {
                 {"name":"output","short":"o","type":"option"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["-o", "file.txt"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["-o", "file.txt"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
 
@@ -538,7 +561,11 @@ mod tests {
                 {"name":"output","short":"o","type":"option"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["-ofile.txt"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["-ofile.txt"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
 
@@ -549,7 +576,11 @@ mod tests {
                 {"name":"input","type":"positional"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["input.txt"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["input.txt"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("input"), Some(&"input.txt".to_string()));
     }
 
@@ -561,7 +592,11 @@ mod tests {
                 {"name":"output","type":"positional"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["in.txt", "out.txt"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["in.txt", "out.txt"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("input"), Some(&"in.txt".to_string()));
         assert_eq!(result.get("output"), Some(&"out.txt".to_string()));
     }
@@ -577,7 +612,8 @@ mod tests {
         );
         let result = unwrap_success(parse_args(
             &config,
-            &args(&["-v", "--output", "out.txt", "in.txt"]),
+            &to_args(&["-v", "--output", "out.txt", "in.txt"]),
+            get_name(&config),
         ));
         assert_eq!(result.get("verbose"), Some(&"true".to_string()));
         assert_eq!(result.get("output"), Some(&"out.txt".to_string()));
@@ -593,7 +629,11 @@ mod tests {
             ]}"#,
         );
         // After --, -v should be treated as positional
-        let result = unwrap_success(parse_args(&config, &args(&["--", "-v"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--", "-v"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("verbose"), Some(&"false".to_string()));
         assert_eq!(result.get("input"), Some(&"-v".to_string()));
     }
@@ -605,7 +645,7 @@ mod tests {
                 {"name":"output","long":"output","type":"option","default":"out.txt"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&[])));
+        let result = unwrap_success(parse_args(&config, &to_args(&[]), get_name(&config)));
         assert_eq!(result.get("output"), Some(&"out.txt".to_string()));
     }
 
@@ -616,7 +656,11 @@ mod tests {
                 {"name":"output","long":"output","type":"option","default":"default.txt"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["--output", "custom.txt"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--output", "custom.txt"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("output"), Some(&"custom.txt".to_string()));
     }
 
@@ -627,7 +671,7 @@ mod tests {
                 {"name":"input","type":"positional","required":true}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&[]));
+        let result = parse_args(&config, &to_args(&[]), get_name(&config));
         match result {
             ParseOutcome::Error(msg) => {
                 assert!(
@@ -647,7 +691,7 @@ mod tests {
                 {"name":"output","long":"output","type":"option"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["--output"]));
+        let result = parse_args(&config, &to_args(&["--output"]), get_name(&config));
         match result {
             ParseOutcome::Error(msg) => {
                 assert!(
@@ -663,7 +707,7 @@ mod tests {
     #[test]
     fn test_error_unknown_option() {
         let config = parse_config(r#"{"name":"test","args":[]}"#);
-        let result = parse_args(&config, &args(&["--unknown"]));
+        let result = parse_args(&config, &to_args(&["--unknown"]), get_name(&config));
         match result {
             ParseOutcome::Error(msg) => {
                 assert!(
@@ -679,7 +723,7 @@ mod tests {
     #[test]
     fn test_error_unexpected_positional() {
         let config = parse_config(r#"{"name":"test","args":[]}"#);
-        let result = parse_args(&config, &args(&["unexpected"]));
+        let result = parse_args(&config, &to_args(&["unexpected"]), get_name(&config));
         match result {
             ParseOutcome::Error(msg) => {
                 // Clap may report this differently
@@ -702,7 +746,11 @@ mod tests {
             ]}"#,
         );
         // -vo should set verbose=true and read next arg as output value
-        let result = unwrap_success(parse_args(&config, &args(&["-vo", "file.txt"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["-vo", "file.txt"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("verbose"), Some(&"true".to_string()));
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
@@ -716,7 +764,11 @@ mod tests {
             ]}"#,
         );
         // -vofile.txt: v=true, o=file.txt
-        let result = unwrap_success(parse_args(&config, &args(&["-vofile.txt"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["-vofile.txt"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("verbose"), Some(&"true".to_string()));
         assert_eq!(result.get("output"), Some(&"file.txt".to_string()));
     }
@@ -728,7 +780,11 @@ mod tests {
                 {"name":"msg","long":"msg","type":"option"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["--msg", "hello $USER!"])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--msg", "hello $USER!"]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("msg"), Some(&"hello $USER!".to_string()));
     }
 
@@ -739,7 +795,11 @@ mod tests {
                 {"name":"value","long":"value","type":"option"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["--value", ""])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--value", ""]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("value"), Some(&"".to_string()));
     }
 
@@ -750,7 +810,11 @@ mod tests {
                 {"name":"value","long":"value","type":"option"}
             ]}"#,
         );
-        let result = unwrap_success(parse_args(&config, &args(&["--value="])));
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--value="]),
+            get_name(&config),
+        ));
         assert_eq!(result.get("value"), Some(&"".to_string()));
     }
 
@@ -764,7 +828,8 @@ mod tests {
         );
         let result = unwrap_success(parse_args(
             &config,
-            &args(&["input.txt", "-o", "output.txt"]),
+            &to_args(&["input.txt", "-o", "output.txt"]),
+            get_name(&config),
         ));
         assert_eq!(result.get("input"), Some(&"input.txt".to_string()));
         assert_eq!(result.get("output"), Some(&"output.txt".to_string()));
@@ -773,35 +838,39 @@ mod tests {
     #[test]
     fn test_help_flag_long() {
         let config = parse_config(r#"{"name":"test"}"#);
-        let result = parse_args(&config, &args(&["--help"]));
+        let result = parse_args(&config, &to_args(&["--help"]), get_name(&config));
         assert!(matches!(result, ParseOutcome::Help(_)));
     }
 
     #[test]
     fn test_help_flag_short() {
         let config = parse_config(r#"{"name":"test"}"#);
-        let result = parse_args(&config, &args(&["-h"]));
+        let result = parse_args(&config, &to_args(&["-h"]), get_name(&config));
         assert!(matches!(result, ParseOutcome::Help(_)));
     }
 
     #[test]
     fn test_version_flag_long() {
         let config = parse_config(r#"{"name":"test","version":"1.0.0"}"#);
-        let result = parse_args(&config, &args(&["--version"]));
+        let result = parse_args(&config, &to_args(&["--version"]), get_name(&config));
         assert!(matches!(result, ParseOutcome::Version(_)));
     }
 
     #[test]
     fn test_version_flag_short() {
         let config = parse_config(r#"{"name":"test","version":"1.0.0"}"#);
-        let result = parse_args(&config, &args(&["-V"]));
+        let result = parse_args(&config, &to_args(&["-V"]), get_name(&config));
         assert!(matches!(result, ParseOutcome::Version(_)));
     }
 
     #[test]
     fn test_help_takes_precedence_over_version() {
         let config = parse_config(r#"{"name":"test","version":"1.0.0"}"#);
-        let result = parse_args(&config, &args(&["--version", "--help"]));
+        let result = parse_args(
+            &config,
+            &to_args(&["--version", "--help"]),
+            get_name(&config),
+        );
         // Clap processes left-to-right, so --version comes first
         // But help should take precedence - we need to check behavior
         assert!(matches!(
@@ -817,7 +886,7 @@ mod tests {
                 {"name":"verbose","short":"v","type":"flag"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["-v", "--help"]));
+        let result = parse_args(&config, &to_args(&["-v", "--help"]), get_name(&config));
         assert!(matches!(result, ParseOutcome::Help(_)));
     }
 
@@ -828,7 +897,7 @@ mod tests {
                 {"name":"verbose","short":"v","type":"flag"}
             ]}"#,
         );
-        let result = parse_args(&config, &args(&["-v", "--version"]));
+        let result = parse_args(&config, &to_args(&["-v", "--version"]), get_name(&config));
         assert!(matches!(result, ParseOutcome::Version(_)));
     }
 
@@ -845,7 +914,7 @@ mod tests {
         );
         config.validate().unwrap();
         // Without env var set and no CLI arg, value should be absent
-        let result = unwrap_success_full(parse_args(&config, &args(&[])));
+        let result = unwrap_success_full(parse_args(&config, &to_args(&[]), get_name(&config)));
         assert!(result.values.get("input").is_none());
     }
 
@@ -859,7 +928,8 @@ mod tests {
         config.validate().unwrap();
         let result = unwrap_success_full(parse_args(
             &config,
-            &args(&["--file", "a.txt", "--file", "b.txt"]),
+            &to_args(&["--file", "a.txt", "--file", "b.txt"]),
+            get_name(&config),
         ));
         match result.values.get("file") {
             Some(ParsedValue::Multiple(v)) => {
@@ -877,7 +947,7 @@ mod tests {
             ]}"#,
         );
         config.validate().unwrap();
-        let result = unwrap_success(parse_args(&config, &args(&["-vvv"])));
+        let result = unwrap_success(parse_args(&config, &to_args(&["-vvv"]), get_name(&config)));
         assert_eq!(result.get("verbose"), Some(&"3".to_string()));
     }
 
@@ -889,7 +959,11 @@ mod tests {
             ]}"#,
         );
         config.validate().unwrap();
-        let result = unwrap_success_full(parse_args(&config, &args(&["--tags", "a,b,c"])));
+        let result = unwrap_success_full(parse_args(
+            &config,
+            &to_args(&["--tags", "a,b,c"]),
+            get_name(&config),
+        ));
         match result.values.get("tags") {
             Some(ParsedValue::Multiple(v)) => {
                 assert_eq!(v, &vec!["a".to_string(), "b".to_string(), "c".to_string()]);
@@ -906,7 +980,8 @@ mod tests {
             ]}"#,
         );
         config.validate().unwrap();
-        let result = unwrap_success_full(parse_args(&config, &args(&["init"])));
+        let result =
+            unwrap_success_full(parse_args(&config, &to_args(&["init"]), get_name(&config)));
         assert_eq!(result.subcommand, Some("init".to_string()));
     }
 
@@ -920,7 +995,11 @@ mod tests {
             ]}"#,
         );
         config.validate().unwrap();
-        let result = unwrap_success_full(parse_args(&config, &args(&["init", "default"])));
+        let result = unwrap_success_full(parse_args(
+            &config,
+            &to_args(&["init", "default"]),
+            get_name(&config),
+        ));
         assert_eq!(result.subcommand, Some("init".to_string()));
         assert_eq!(
             result.values.get("template"),
@@ -937,7 +1016,11 @@ mod tests {
             }"#,
         );
         config.validate().unwrap();
-        let result = unwrap_success_full(parse_args(&config, &args(&["-v", "run"])));
+        let result = unwrap_success_full(parse_args(
+            &config,
+            &to_args(&["-v", "run"]),
+            get_name(&config),
+        ));
         assert_eq!(result.subcommand, Some("run".to_string()));
         assert_eq!(
             result.values.get("verbose"),
@@ -953,7 +1036,7 @@ mod tests {
             ]}"#,
         );
         config.validate().unwrap();
-        let result = parse_args(&config, &args(&[]));
+        let result = parse_args(&config, &to_args(&[]), get_name(&config));
         // Should error because subcommand is required
         assert!(matches!(
             result,
@@ -969,7 +1052,11 @@ mod tests {
             ]}"#,
         );
         config.validate().unwrap();
-        let result = unwrap_success_full(parse_args(&config, &args(&["--file", "a", "b"])));
+        let result = unwrap_success_full(parse_args(
+            &config,
+            &to_args(&["--file", "a", "b"]),
+            get_name(&config),
+        ));
         match result.values.get("files") {
             Some(ParsedValue::Multiple(v)) => {
                 assert_eq!(v.len(), 2);
@@ -990,5 +1077,38 @@ mod tests {
         assert!(parse_num_args_range("1..=3").is_some());
         // Invalid
         assert!(parse_num_args_range("abc").is_none());
+    }
+
+    #[test]
+    fn test_long_fallback_to_name() {
+        // When neither short nor long is specified, name should be used as long
+        let config = parse_config(
+            r#"{"name":"test","args":[
+                {"name":"verbose","type":"flag"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--verbose"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("verbose"), Some(&"true".to_string()));
+    }
+
+    #[test]
+    fn test_effective_name_override() {
+        // Test that the effective_name parameter is used correctly
+        let config = parse_config(r#"{"name":"config_name"}"#);
+        let result = parse_args(&config, &to_args(&["--help"]), "override_name");
+        match result {
+            ParseOutcome::Help(help_text) => {
+                assert!(
+                    help_text.contains("override_name"),
+                    "Help should contain override_name"
+                );
+            }
+            other => panic!("Expected Help, got {:?}", other),
+        }
     }
 }

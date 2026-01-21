@@ -4,8 +4,8 @@ use crate::config::{ArgConfig, ArgType, Config, SubcommandConfig};
 use clap::{Arg, ArgAction, Command};
 
 /// Build a Clap Command from a Config (for help/version generation).
-fn build_command(config: &Config) -> Command {
-    let mut cmd = Command::new(config.name.clone()).disable_help_subcommand(true);
+fn build_command(config: &Config, effective_name: &str) -> Command {
+    let mut cmd = Command::new(effective_name.to_string()).disable_help_subcommand(true);
 
     // Set version if provided
     if let Some(ref version) = config.version {
@@ -78,8 +78,9 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
                 arg = arg.short(short);
             }
 
-            if let Some(ref long) = arg_config.long {
-                arg = arg.long(long.clone());
+            // Use effective_long which falls back to name if neither short nor long is specified
+            if let Some(long) = arg_config.effective_long() {
+                arg = arg.long(long.to_string());
             }
         }
         ArgType::Option => {
@@ -94,8 +95,9 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
                 arg = arg.short(short);
             }
 
-            if let Some(ref long) = arg_config.long {
-                arg = arg.long(long.clone());
+            // Use effective_long which falls back to name if neither short nor long is specified
+            if let Some(long) = arg_config.effective_long() {
+                arg = arg.long(long.to_string());
             }
 
             arg = arg.value_name("VALUE");
@@ -177,14 +179,18 @@ fn parse_num_args_range(s: &str) -> Option<clap::builder::ValueRange> {
 }
 
 /// Generate the full help text for a script.
-pub fn generate_help(config: &Config) -> String {
-    let mut cmd = build_command(config);
+///
+/// The `effective_name` parameter is the program name to use (from CLI --name or config name).
+pub fn generate_help(config: &Config, effective_name: &str) -> String {
+    let mut cmd = build_command(config, effective_name);
     cmd.render_help().to_string()
 }
 
 /// Generate version string.
-pub fn generate_version(config: &Config) -> String {
-    let mut version = config.name.clone();
+///
+/// The `effective_name` parameter is the program name to use (from CLI --name or config name).
+pub fn generate_version(config: &Config, effective_name: &str) -> String {
+    let mut version = effective_name.to_string();
     if let Some(ref v) = config.version {
         version.push(' ');
         version.push_str(v);
@@ -205,13 +211,18 @@ mod tests {
     ) -> Config {
         Config {
             schema_version: 1,
-            name: name.to_string(),
+            name: Some(name.to_string()),
             description: description.map(|s| s.to_string()),
             version: version.map(|s| s.to_string()),
             prefix: None,
             args,
             subcommands: vec![],
         }
+    }
+
+    /// Get the effective name from config, defaulting to "test".
+    fn get_name(config: &Config) -> &str {
+        config.name.as_deref().unwrap_or("test")
     }
 
     fn make_flag(
@@ -299,7 +310,7 @@ mod tests {
             ],
         );
 
-        let help = generate_help(&config);
+        let help = generate_help(&config, get_name(&config));
 
         // Check essential content is present (Clap format may differ slightly)
         assert!(help.contains("myscript"), "Help should contain script name");
@@ -325,7 +336,7 @@ mod tests {
     fn test_generate_help_minimal() {
         let config = make_config("minimal", None, None, vec![]);
 
-        let help = generate_help(&config);
+        let help = generate_help(&config, get_name(&config));
 
         assert!(help.contains("minimal"), "Help should contain script name");
         assert!(
@@ -350,7 +361,7 @@ mod tests {
             )],
         );
 
-        let help = generate_help(&config);
+        let help = generate_help(&config, get_name(&config));
 
         assert!(help.contains("out.txt"), "Help should show default value");
     }
@@ -358,11 +369,51 @@ mod tests {
     #[test]
     fn test_generate_version() {
         let config = make_config("myapp", None, Some("2.1.0"), vec![]);
-        let version = generate_version(&config);
+        let version = generate_version(&config, get_name(&config));
         assert_eq!(version, "myapp 2.1.0\n");
 
         let config_no_version = make_config("myapp", None, None, vec![]);
-        let version = generate_version(&config_no_version);
+        let version = generate_version(&config_no_version, get_name(&config_no_version));
         assert_eq!(version, "myapp\n");
+    }
+
+    #[test]
+    fn test_generate_help_with_name_override() {
+        // Test that --name override works correctly
+        let config = make_config("config_name", None, None, vec![]);
+
+        let help = generate_help(&config, "override_name");
+
+        assert!(
+            help.contains("override_name"),
+            "Help should contain the override name"
+        );
+        assert!(
+            !help.contains("config_name"),
+            "Help should not contain the config name"
+        );
+    }
+
+    #[test]
+    fn test_generate_help_with_long_fallback() {
+        // Test that argument name is used as long option when neither short nor long specified
+        let config = make_config(
+            "test",
+            None,
+            None,
+            vec![make_flag(
+                "verbose",
+                None,
+                None,
+                Some("Enable verbose mode"),
+            )],
+        );
+
+        let help = generate_help(&config, get_name(&config));
+
+        assert!(
+            help.contains("--verbose"),
+            "Help should show --verbose (name used as long fallback)"
+        );
     }
 }

@@ -107,8 +107,8 @@ pub struct Config {
     /// Schema version for the config format (default: 1)
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
-    /// Name of the script
-    pub name: String,
+    /// Name of the script (optional if provided via CLI --name)
+    pub name: Option<String>,
     /// Description of the script
     pub description: Option<String>,
     /// Version of the script
@@ -211,6 +211,8 @@ impl Config {
     }
 
     /// Validate a single argument configuration.
+    /// Note: This no longer errors when neither short nor long is specified for non-positional args.
+    /// Instead, the name will be used as the long option by default.
     fn validate_arg(arg: &ArgConfig, schema_version: u32) -> Result<(), ConfigError> {
         // Validate short option
         if let Some(short) = arg.short {
@@ -219,10 +221,8 @@ impl Config {
             }
         }
 
-        // For non-positional args, ensure at least short or long is specified
-        if arg.arg_type != ArgType::Positional && arg.short.is_none() && arg.long.is_none() {
-            return Err(ConfigError::NoOptionSpecified(arg.name.clone()));
-        }
+        // Note: We no longer error if neither short nor long is specified.
+        // The name will be used as the long option when building the command.
 
         // Validate num_args format (schema v2)
         if schema_version >= 2 {
@@ -281,6 +281,20 @@ impl ArgConfig {
     pub fn uses_v2_features(&self) -> bool {
         self.env.is_some() || self.multiple || self.num_args.is_some() || self.delimiter.is_some()
     }
+
+    /// Get the effective long option for this argument.
+    /// Returns the specified long option, or falls back to the argument name
+    /// for non-positional arguments that have no short option.
+    pub fn effective_long(&self) -> Option<&str> {
+        if self.long.is_some() {
+            return self.long.as_deref();
+        }
+        // For non-positional args without short, use name as long
+        if self.arg_type != ArgType::Positional && self.short.is_none() {
+            return Some(&self.name);
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -320,7 +334,7 @@ mod tests {
         }"#;
 
         let config = Config::from_json(json).unwrap();
-        assert_eq!(config.name, "myscript");
+        assert_eq!(config.name, Some("myscript".to_string()));
         assert_eq!(config.description, Some("My awesome script".to_string()));
         assert_eq!(config.version, Some("1.0.0".to_string()));
         assert_eq!(config.prefix, Some("MYAPP_".to_string()));
@@ -353,7 +367,7 @@ mod tests {
     fn test_parse_minimal_config() {
         let json = r#"{"name": "minimal"}"#;
         let config = Config::from_json(json).unwrap();
-        assert_eq!(config.name, "minimal");
+        assert_eq!(config.name, Some("minimal".to_string()));
         assert!(config.description.is_none());
         assert!(config.version.is_none());
         assert!(config.prefix.is_none());
@@ -362,10 +376,12 @@ mod tests {
     }
 
     #[test]
-    fn test_error_on_missing_name() {
+    fn test_config_without_name_is_valid() {
+        // Name is now optional (can be provided via CLI --name)
         let json = r#"{"description": "no name"}"#;
-        let result = Config::from_json(json);
-        assert!(result.is_err());
+        let config = Config::from_json(json).unwrap();
+        assert!(config.name.is_none());
+        assert_eq!(config.description, Some("no name".to_string()));
     }
 
     #[test]
@@ -396,16 +412,19 @@ mod tests {
     }
 
     #[test]
-    fn test_error_on_no_option_specified() {
+    fn test_no_option_specified_uses_name_as_long() {
+        // When neither short nor long is specified, name should be used as long
         let json = r#"{
             "name": "test",
             "args": [
-                {"name": "noopt", "type": "flag"}
+                {"name": "verbose", "type": "flag"}
             ]
         }"#;
         let config = Config::from_json(json).unwrap();
-        let result = config.validate();
-        assert!(matches!(result, Err(ConfigError::NoOptionSpecified(_))));
+        // Validation should pass - name is used as long option
+        config.validate().unwrap();
+        // Check that effective_long returns the name
+        assert_eq!(config.args[0].effective_long(), Some("verbose"));
     }
 
     #[test]
@@ -692,5 +711,81 @@ mod tests {
             ..v1_arg.clone()
         };
         assert!(v2_arg_delimiter.uses_v2_features());
+    }
+
+    #[test]
+    fn test_effective_long_explicit() {
+        // When long is explicitly specified, use it
+        let arg = ArgConfig {
+            name: "verbose".to_string(),
+            short: Some('v'),
+            long: Some("verbose".to_string()),
+            arg_type: ArgType::Flag,
+            required: false,
+            default: None,
+            help: None,
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
+        };
+        assert_eq!(arg.effective_long(), Some("verbose"));
+    }
+
+    #[test]
+    fn test_effective_long_fallback_to_name() {
+        // When neither short nor long is specified, use name as long
+        let arg = ArgConfig {
+            name: "verbose".to_string(),
+            short: None,
+            long: None,
+            arg_type: ArgType::Flag,
+            required: false,
+            default: None,
+            help: None,
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
+        };
+        assert_eq!(arg.effective_long(), Some("verbose"));
+    }
+
+    #[test]
+    fn test_effective_long_with_short_only() {
+        // When only short is specified, no long option
+        let arg = ArgConfig {
+            name: "verbose".to_string(),
+            short: Some('v'),
+            long: None,
+            arg_type: ArgType::Flag,
+            required: false,
+            default: None,
+            help: None,
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
+        };
+        assert_eq!(arg.effective_long(), None);
+    }
+
+    #[test]
+    fn test_effective_long_positional() {
+        // Positional args never have long options
+        let arg = ArgConfig {
+            name: "input".to_string(),
+            short: None,
+            long: None,
+            arg_type: ArgType::Positional,
+            required: false,
+            default: None,
+            help: None,
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
+        };
+        assert_eq!(arg.effective_long(), None);
     }
 }

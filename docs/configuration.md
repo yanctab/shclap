@@ -7,12 +7,14 @@ shclap uses JSON configuration to define your CLI interface. This document cover
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `schema_version` | number | No | Schema version (default: 1). Set to 2 for extended features. |
-| `name` | string | Yes | Name of your script/tool |
+| `name` | string | No* | Name of your script/tool. *Optional if provided via CLI `--name` flag. |
 | `description` | string | No | Description shown in help output |
 | `version` | string | No | Version string shown with `--version` |
 | `prefix` | string | No | Environment variable prefix (default: `SHCLAP_`) |
-| `args` | array | Yes | Array of argument definitions |
+| `args` | array | No | Array of argument definitions (default: empty) |
 | `subcommands` | array | No | Array of subcommand definitions (v2 only) |
+
+**Note:** The `name` field can be omitted if you provide the application name via the CLI `--name` flag. This is useful when you want to avoid hardcoding the script name in your configuration.
 
 ## Argument Fields
 
@@ -22,7 +24,7 @@ Each argument in the `args` array can have the following fields:
 |-------|------|----------|-------------|
 | `name` | string | Yes | Argument name (becomes env var suffix) |
 | `short` | char | No | Single character for short flag (e.g., `v` for `-v`) |
-| `long` | string | No | Long flag name (defaults to `name`) |
+| `long` | string | No | Long flag name (defaults to `name` if no `short` specified) |
 | `type` | string | Yes | One of: `flag`, `option`, `positional` |
 | `required` | bool | No | Whether argument is required (default: false) |
 | `default` | string | No | Default value if not provided |
@@ -31,6 +33,34 @@ Each argument in the `args` array can have the following fields:
 | `multiple` | bool | No | Accept multiple values as array (v2 only) |
 | `num_args` | string | No | Number of values per occurrence (v2 only) |
 | `delimiter` | string | No | Split single value by delimiter (v2 only) |
+
+### Long Option Fallback
+
+For non-positional arguments (`flag` or `option` types), if neither `short` nor `long` is specified, the `name` field is automatically used as the long option. This allows for concise configurations:
+
+```json
+{
+  "name": "myapp",
+  "args": [
+    {"name": "verbose", "type": "flag"},
+    {"name": "output", "type": "option"}
+  ]
+}
+```
+
+This is equivalent to:
+
+```json
+{
+  "name": "myapp",
+  "args": [
+    {"name": "verbose", "long": "verbose", "type": "flag"},
+    {"name": "output", "long": "output", "type": "option"}
+  ]
+}
+```
+
+Both configurations accept `--verbose` and `--output`.
 
 ## Argument Types
 
@@ -79,6 +109,28 @@ Each argument in the `args` array can have the following fields:
   ]
 }
 ```
+
+## Minimal Example (Using Long Fallback)
+
+A minimal configuration using the long option fallback feature:
+
+```json
+{
+  "args": [
+    {"name": "verbose", "type": "flag", "help": "Enable verbose output"},
+    {"name": "output", "type": "option", "help": "Output file path"},
+    {"name": "input", "type": "positional", "help": "Input file"}
+  ]
+}
+```
+
+Usage with CLI `--name` flag:
+
+```bash
+source $(shclap parse --config="$CONFIG" --name="$(basename "$0")" -- "$@")
+```
+
+This accepts: `--verbose`, `--output=file.txt`, and positional `input.txt`.
 
 ## Environment Variable Output
 

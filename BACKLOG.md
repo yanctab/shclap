@@ -229,9 +229,9 @@ Each task follows this workflow:
 ## Phase 6 - Extra Tasks
 
 ### More flags
-- We need --name to be able to set the application name as a flag to shclap that way we can avoid hard code it in the config.
-- Extend the cli-reference.md with this new flag.
-- Short and long should be optional if no short is specified then only long is accepted if long is not specified then the name should be used as the long.
+- ~~We need --name to be able to set the application name as a flag to shclap that way we can avoid hard code it in the config.~~
+- ~~Extend the cli-reference.md with this new flag.~~
+- ~~Short and long should be optional if no short is specified then only long is accepted if long is not specified then the name should be used as the long.~~
 - It should be possible to specify what values are supported so like value1, value2, value3 if the flag is not set to any of these three values then it should fail listing what values are supported.
 - Do we need to be able to define if a value should be string, bool or int?
 
@@ -246,7 +246,7 @@ Each task follows this workflow:
 - We should add a shclap print that could be called by the script this should then print out all <scriptname> followed by all the flags used when calling the script. If it is a mix of flags and env convert the env varibles to matching flags.
 
 ### Default Value
-- Each flag should be able to define a default value so it should be possible to either supply a flag with a value or not supply the flag to the script but if there is a default value then the env in the script should be set using this value or the variable is defined as an env outside of the script.
+- ~~Each flag should be able to define a default value so it should be possible to either supply a flag with a value or not supply the flag to the script but if there is a default value then the env in the script should be set using this value or the variable is defined as an env outside of the script.~~ (Already implemented)
 
 ### Cargo
 - We should release this to cargo if it is possible to release a application using cargo also

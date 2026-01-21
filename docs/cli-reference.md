@@ -9,7 +9,7 @@ This document covers shclap's command-line interface and all available options.
 Parse command-line arguments according to the JSON configuration and output a sourceable shell script.
 
 ```bash
-shclap parse --config=<JSON> -- [ARGS...]
+shclap parse --config=<JSON> [--name=<NAME>] [--prefix=<PREFIX>] -- [ARGS...]
 ```
 
 **Arguments:**
@@ -17,6 +17,7 @@ shclap parse --config=<JSON> -- [ARGS...]
 | Argument | Description |
 |----------|-------------|
 | `--config=<JSON>` | JSON configuration string (required) |
+| `--name=<NAME>` | Application name (overrides config `name` field) |
 | `--prefix=<PREFIX>` | Environment variable prefix (default: `SHCLAP_`) |
 | `--` | Separator between shclap options and script arguments |
 | `[ARGS...]` | Arguments to parse (typically `"$@"`) |
@@ -24,27 +25,49 @@ shclap parse --config=<JSON> -- [ARGS...]
 **Example:**
 
 ```bash
-source $(shclap parse --config='{"name":"test","args":[]}' -- "$@")
+source $(shclap parse --config='{"args":[]}' --name=myapp -- "$@")
 ```
 
 ### `shclap help`
 
-Display help information.
+Display help information for your script (using the config).
 
 ```bash
-shclap help
-shclap --help
-shclap -h
+shclap help --config=<JSON> [--name=<NAME>]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `--config=<JSON>` | JSON configuration string (required) |
+| `--name=<NAME>` | Application name (overrides config `name` field) |
+
+**Example:**
+
+```bash
+shclap help --config='{"args":[{"name":"verbose","type":"flag"}]}' --name=myapp
 ```
 
 ### `shclap version`
 
-Display version information.
+Display version information for your script (using the config).
 
 ```bash
-shclap version
-shclap --version
-shclap -V
+shclap version --config=<JSON> [--name=<NAME>]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `--config=<JSON>` | JSON configuration string (required) |
+| `--name=<NAME>` | Application name (overrides config `name` field) |
+
+**Example:**
+
+```bash
+shclap version --config='{"version":"1.0.0"}' --name=myapp
 ```
 
 ## Options
@@ -64,6 +87,25 @@ shclap parse --config='{"name":"app","args":[]}' -- "$@"
 # Variable
 CONFIG='{"name":"app","args":[]}'
 shclap parse --config="$CONFIG" -- "$@"
+```
+
+### `--name=<NAME>`
+
+Override the application name from the JSON configuration. This allows you to avoid hardcoding the script name in your config.
+
+**Priority:** CLI `--name` > config `name` field
+
+If neither is provided, shclap will return an error.
+
+```bash
+# Name from --name flag (config doesn't need 'name' field)
+shclap parse --config='{"args":[]}' --name="$0" -- "$@"
+
+# Name from config (no --name flag needed)
+shclap parse --config='{"name":"myapp","args":[]}' -- "$@"
+
+# CLI overrides config
+shclap parse --config='{"name":"ignored","args":[]}' --name="actual_name" -- "$@"
 ```
 
 ### `--prefix=<PREFIX>`
