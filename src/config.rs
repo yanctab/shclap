@@ -39,6 +39,15 @@ pub enum ConfigError {
         "invalid num_args format '{0}': expected a number or range like '1..', '2..5', or '1..=3'"
     )]
     InvalidNumArgsFormat(String),
+
+    #[error("'choices' on argument '{0}' is empty: must have at least one valid value")]
+    EmptyChoices(String),
+
+    #[error("'choices' on argument '{0}' has duplicate value: {1}")]
+    DuplicateChoice(String, String),
+
+    #[error("'choices' cannot be used with flag type on argument '{0}'")]
+    ChoicesOnFlag(String),
 }
 
 /// The type of argument.
@@ -83,6 +92,9 @@ pub struct ArgConfig {
     pub num_args: Option<String>,
     /// Split single value by this delimiter (schema_version >= 2)
     pub delimiter: Option<char>,
+    /// Allowed values for this argument (schema_version >= 2)
+    #[serde(default)]
+    pub choices: Option<Vec<String>>,
 }
 
 /// Configuration for a subcommand (schema_version >= 2).
@@ -207,6 +219,12 @@ impl Config {
                 arg.name.clone(),
             ));
         }
+        if arg.choices.is_some() {
+            return Err(ConfigError::FieldRequiresV2(
+                "choices".to_string(),
+                arg.name.clone(),
+            ));
+        }
         Ok(())
     }
 
@@ -229,8 +247,36 @@ impl Config {
             if let Some(ref num_args) = arg.num_args {
                 validate_num_args_format(num_args)?;
             }
+            Self::validate_choices(arg)?;
         }
 
+        Ok(())
+    }
+
+    /// Validate choices field on an argument.
+    fn validate_choices(arg: &ArgConfig) -> Result<(), ConfigError> {
+        if let Some(ref choices) = arg.choices {
+            // Choices cannot be used with flags
+            if arg.arg_type == ArgType::Flag {
+                return Err(ConfigError::ChoicesOnFlag(arg.name.clone()));
+            }
+
+            // Choices must not be empty
+            if choices.is_empty() {
+                return Err(ConfigError::EmptyChoices(arg.name.clone()));
+            }
+
+            // Check for duplicates
+            let mut seen = std::collections::HashSet::new();
+            for choice in choices {
+                if !seen.insert(choice) {
+                    return Err(ConfigError::DuplicateChoice(
+                        arg.name.clone(),
+                        choice.clone(),
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -279,7 +325,11 @@ fn validate_num_args_format(num_args: &str) -> Result<(), ConfigError> {
 impl ArgConfig {
     /// Check if this argument uses any v2-only features.
     pub fn uses_v2_features(&self) -> bool {
-        self.env.is_some() || self.multiple || self.num_args.is_some() || self.delimiter.is_some()
+        self.env.is_some()
+            || self.multiple
+            || self.num_args.is_some()
+            || self.delimiter.is_some()
+            || self.choices.is_some()
     }
 
     /// Get the effective long option for this argument.
@@ -685,6 +735,7 @@ mod tests {
             multiple: false,
             num_args: None,
             delimiter: None,
+            choices: None,
         };
         assert!(!v1_arg.uses_v2_features());
 
@@ -711,6 +762,12 @@ mod tests {
             ..v1_arg.clone()
         };
         assert!(v2_arg_delimiter.uses_v2_features());
+
+        let v2_arg_choices = ArgConfig {
+            choices: Some(vec!["a".to_string(), "b".to_string()]),
+            ..v1_arg.clone()
+        };
+        assert!(v2_arg_choices.uses_v2_features());
     }
 
     #[test]
@@ -728,6 +785,7 @@ mod tests {
             multiple: false,
             num_args: None,
             delimiter: None,
+            choices: None,
         };
         assert_eq!(arg.effective_long(), Some("verbose"));
     }
@@ -747,6 +805,7 @@ mod tests {
             multiple: false,
             num_args: None,
             delimiter: None,
+            choices: None,
         };
         assert_eq!(arg.effective_long(), Some("verbose"));
     }
@@ -766,6 +825,7 @@ mod tests {
             multiple: false,
             num_args: None,
             delimiter: None,
+            choices: None,
         };
         assert_eq!(arg.effective_long(), None);
     }
@@ -785,7 +845,123 @@ mod tests {
             multiple: false,
             num_args: None,
             delimiter: None,
+            choices: None,
         };
         assert_eq!(arg.effective_long(), None);
+    }
+
+    // Choices validation tests
+
+    #[test]
+    fn test_valid_choices_on_option() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "format", "long": "format", "type": "option", "choices": ["json", "yaml", "toml"]}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(
+            config.args[0].choices,
+            Some(vec![
+                "json".to_string(),
+                "yaml".to_string(),
+                "toml".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn test_valid_choices_on_positional() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "action", "type": "positional", "choices": ["start", "stop", "restart"]}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_error_choices_in_v1_config() {
+        let json = r#"{
+            "schema_version": 1,
+            "name": "test",
+            "args": [
+                {"name": "format", "long": "format", "type": "option", "choices": ["json", "yaml"]}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::FieldRequiresV2(field, _)) if field == "choices")
+        );
+    }
+
+    #[test]
+    fn test_error_choices_on_flag() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "verbose", "short": "v", "type": "flag", "choices": ["yes", "no"]}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::ChoicesOnFlag(name)) if name == "verbose"));
+    }
+
+    #[test]
+    fn test_error_empty_choices() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "format", "long": "format", "type": "option", "choices": []}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::EmptyChoices(name)) if name == "format"));
+    }
+
+    #[test]
+    fn test_error_duplicate_choices() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "format", "long": "format", "type": "option", "choices": ["json", "yaml", "json"]}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::DuplicateChoice(name, value)) if name == "format" && value == "json")
+        );
+    }
+
+    #[test]
+    fn test_uses_v2_features_with_choices() {
+        let arg = ArgConfig {
+            name: "format".to_string(),
+            short: None,
+            long: Some("format".to_string()),
+            arg_type: ArgType::Option,
+            required: false,
+            default: None,
+            help: None,
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
+            choices: Some(vec!["json".to_string(), "yaml".to_string()]),
+        };
+        assert!(arg.uses_v2_features());
     }
 }

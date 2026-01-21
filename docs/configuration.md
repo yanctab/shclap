@@ -33,6 +33,7 @@ Each argument in the `args` array can have the following fields:
 | `multiple` | bool | No | Accept multiple values as array (v2 only) |
 | `num_args` | string | No | Number of values per occurrence (v2 only) |
 | `delimiter` | string | No | Split single value by delimiter (v2 only) |
+| `choices` | array | No | Allowed values for this argument (v2 only) |
 
 ### Long Option Fallback
 
@@ -92,6 +93,15 @@ Both configurations accept `--verbose` and `--output`.
       "type": "option",
       "required": true,
       "help": "Output file path"
+    },
+    {
+      "name": "format",
+      "short": "f",
+      "long": "format",
+      "type": "option",
+      "choices": ["json", "yaml", "toml"],
+      "default": "json",
+      "help": "Output format"
     },
     {
       "name": "config",

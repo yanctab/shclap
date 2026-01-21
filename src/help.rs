@@ -142,6 +142,11 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
         arg = arg.value_delimiter(delim);
     }
 
+    // Schema v2: Choices (possible values)
+    if let Some(ref choices) = arg_config.choices {
+        arg = arg.value_parser(clap::builder::PossibleValuesParser::new(choices.clone()));
+    }
+
     arg
 }
 
@@ -243,6 +248,7 @@ mod tests {
             multiple: false,
             num_args: None,
             delimiter: None,
+            choices: None,
         }
     }
 
@@ -266,6 +272,7 @@ mod tests {
             multiple: false,
             num_args: None,
             delimiter: None,
+            choices: None,
         }
     }
 
@@ -282,6 +289,7 @@ mod tests {
             multiple: false,
             num_args: None,
             delimiter: None,
+            choices: None,
         }
     }
 
@@ -414,6 +422,46 @@ mod tests {
         assert!(
             help.contains("--verbose"),
             "Help should show --verbose (name used as long fallback)"
+        );
+    }
+
+    #[test]
+    fn test_generate_help_with_choices() {
+        // Test that choices are shown in help output
+        let config = Config {
+            schema_version: 2,
+            name: Some("test".to_string()),
+            description: None,
+            version: None,
+            prefix: None,
+            args: vec![ArgConfig {
+                name: "format".to_string(),
+                short: Some('f'),
+                long: Some("format".to_string()),
+                arg_type: ArgType::Option,
+                required: false,
+                default: None,
+                help: Some("Output format".to_string()),
+                env: None,
+                multiple: false,
+                num_args: None,
+                delimiter: None,
+                choices: Some(vec![
+                    "json".to_string(),
+                    "yaml".to_string(),
+                    "toml".to_string(),
+                ]),
+            }],
+            subcommands: vec![],
+        };
+
+        let help = generate_help(&config, get_name(&config));
+
+        // Clap shows possible values in help
+        assert!(
+            help.contains("json") && help.contains("yaml") && help.contains("toml"),
+            "Help should show choices: {}",
+            help
         );
     }
 }

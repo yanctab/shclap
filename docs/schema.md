@@ -52,6 +52,7 @@ source $(shclap parse --config "$CONFIG" -- "$@")
 Version 1 does not support:
 - Environment variable fallback (`env` field)
 - Multiple values (`multiple` field)
+- Value choices/enums (`choices` field)
 - Subcommands (`subcommands` field)
 
 ## Schema Version 2
@@ -129,6 +130,31 @@ Use `num_args` to accept multiple values per flag occurrence:
 ```bash
 # --point 10 20 --point 30 40 -> SHCLAP_POINT=("10" "20" "30" "40")
 ```
+
+### Value Choices (Enums)
+
+Restrict an argument to a set of valid values using the `choices` field. Invalid values will be rejected with a clear error message:
+
+```json
+{"name": "format", "long": "format", "type": "option", "choices": ["json", "yaml", "toml"]}
+```
+
+```bash
+$ myapp --format json   # OK
+$ myapp --format xml    # Error: invalid value 'xml' for '--format'
+```
+
+Choices work with both options and positional arguments:
+
+```json
+{"name": "action", "type": "positional", "choices": ["start", "stop", "restart"]}
+```
+
+**Notes:**
+- Choices cannot be used with flags (flags are boolean and don't accept values)
+- The choices array must have at least one value
+- Duplicate values in choices are not allowed
+- Valid values are shown in help output
 
 ### Subcommands
 

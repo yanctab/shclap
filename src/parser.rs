@@ -222,6 +222,11 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
         arg = arg.value_delimiter(delim);
     }
 
+    // Schema v2: Choices (possible values)
+    if let Some(ref choices) = arg_config.choices {
+        arg = arg.value_parser(clap::builder::PossibleValuesParser::new(choices.clone()));
+    }
+
     arg
 }
 
@@ -1109,6 +1114,111 @@ mod tests {
                 );
             }
             other => panic!("Expected Help, got {:?}", other),
+        }
+    }
+
+    // Choices tests
+
+    #[test]
+    fn test_choices_valid_value_accepted() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"format","long":"format","type":"option","choices":["json","yaml","toml"]}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--format", "json"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("format"), Some(&"json".to_string()));
+    }
+
+    #[test]
+    fn test_choices_invalid_value_rejected() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"format","long":"format","type":"option","choices":["json","yaml","toml"]}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = parse_args(&config, &to_args(&["--format", "xml"]), get_name(&config));
+        match result {
+            ParseOutcome::Error(msg) => {
+                assert!(
+                    msg.contains("xml") || msg.contains("invalid"),
+                    "Error should mention invalid value: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_choices_with_default() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"format","long":"format","type":"option","choices":["json","yaml"],"default":"json"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(&config, &to_args(&[]), get_name(&config)));
+        assert_eq!(result.get("format"), Some(&"json".to_string()));
+    }
+
+    #[test]
+    fn test_choices_positional() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"action","type":"positional","choices":["start","stop","restart"]}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(&config, &to_args(&["start"]), get_name(&config)));
+        assert_eq!(result.get("action"), Some(&"start".to_string()));
+    }
+
+    #[test]
+    fn test_choices_positional_invalid() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"action","type":"positional","choices":["start","stop","restart"]}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = parse_args(&config, &to_args(&["pause"]), get_name(&config));
+        match result {
+            ParseOutcome::Error(msg) => {
+                assert!(
+                    msg.contains("pause") || msg.contains("invalid"),
+                    "Error should mention invalid value: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_choices_with_multiple_values() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"tags","long":"tag","type":"option","multiple":true,"choices":["a","b","c"]}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success_full(parse_args(
+            &config,
+            &to_args(&["--tag", "a", "--tag", "b"]),
+            get_name(&config),
+        ));
+        match result.values.get("tags") {
+            Some(ParsedValue::Multiple(v)) => {
+                assert_eq!(v, &vec!["a".to_string(), "b".to_string()]);
+            }
+            other => panic!("Expected Multiple, got {:?}", other),
         }
     }
 }
