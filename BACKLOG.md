@@ -233,7 +233,7 @@ Each task follows this workflow:
 - ~~Extend the cli-reference.md with this new flag.~~
 - ~~Short and long should be optional if no short is specified then only long is accepted if long is not specified then the name should be used as the long.~~
 - ~~It should be possible to specify what values are supported so like value1, value2, value3 if the flag is not set to any of these three values then it should fail listing what values are supported.~~ (Implemented as `choices` field in schema v2)
-- Do we need to be able to define if a value should be string, bool or int?
+- ~~Do we need to be able to define if a value should be string, bool or int?~~ (Implemented as `value_type` field in schema v2)
 
 ### Documentation
 - Clarify "Environment variable fallback for options" in the schematic v2 I don't understand it.

@@ -1,6 +1,6 @@
 //! Help and version text generation for target scripts using Clap.
 
-use crate::config::{ArgConfig, ArgType, Config, SubcommandConfig};
+use crate::config::{ArgConfig, ArgType, Config, SubcommandConfig, ValueType};
 use clap::{Arg, ArgAction, Command};
 
 /// Build a Clap Command from a Config (for help/version generation).
@@ -142,9 +142,20 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
         arg = arg.value_delimiter(delim);
     }
 
-    // Schema v2: Choices (possible values)
+    // Schema v2: Choices (possible values) - takes precedence over value_type
     if let Some(ref choices) = arg_config.choices {
         arg = arg.value_parser(clap::builder::PossibleValuesParser::new(choices.clone()));
+    } else {
+        // Schema v2: Apply value_type parser if no choices specified
+        match arg_config.value_type {
+            ValueType::String => {} // Default, no special parser
+            ValueType::Int => {
+                arg = arg.value_parser(clap::value_parser!(i64));
+            }
+            ValueType::Bool => {
+                arg = arg.value_parser(clap::builder::PossibleValuesParser::new(["true", "false"]));
+            }
+        }
     }
 
     arg
@@ -249,6 +260,7 @@ mod tests {
             num_args: None,
             delimiter: None,
             choices: None,
+            value_type: ValueType::String,
         }
     }
 
@@ -273,6 +285,7 @@ mod tests {
             num_args: None,
             delimiter: None,
             choices: None,
+            value_type: ValueType::String,
         }
     }
 
@@ -290,6 +303,7 @@ mod tests {
             num_args: None,
             delimiter: None,
             choices: None,
+            value_type: ValueType::String,
         }
     }
 
@@ -451,6 +465,7 @@ mod tests {
                     "yaml".to_string(),
                     "toml".to_string(),
                 ]),
+                value_type: ValueType::String,
             }],
             subcommands: vec![],
         };
@@ -461,6 +476,43 @@ mod tests {
         assert!(
             help.contains("json") && help.contains("yaml") && help.contains("toml"),
             "Help should show choices: {}",
+            help
+        );
+    }
+
+    #[test]
+    fn test_generate_help_with_value_type_bool() {
+        // Test that bool value_type shows true/false in help
+        let config = Config {
+            schema_version: 2,
+            name: Some("test".to_string()),
+            description: None,
+            version: None,
+            prefix: None,
+            args: vec![ArgConfig {
+                name: "enabled".to_string(),
+                short: Some('e'),
+                long: Some("enabled".to_string()),
+                arg_type: ArgType::Option,
+                required: false,
+                default: None,
+                help: Some("Enable feature".to_string()),
+                env: None,
+                multiple: false,
+                num_args: None,
+                delimiter: None,
+                choices: None,
+                value_type: ValueType::Bool,
+            }],
+            subcommands: vec![],
+        };
+
+        let help = generate_help(&config, get_name(&config));
+
+        // Clap shows possible values for bool
+        assert!(
+            help.contains("true") && help.contains("false"),
+            "Help should show true/false for bool value_type: {}",
             help
         );
     }

@@ -1,6 +1,6 @@
 //! Argument parsing for target scripts using dynamic Clap.
 
-use crate::config::{ArgConfig, ArgType, Config, SubcommandConfig};
+use crate::config::{ArgConfig, ArgType, Config, SubcommandConfig, ValueType};
 use clap::{error::ErrorKind, Arg, ArgAction, Command};
 use std::collections::HashMap;
 
@@ -222,9 +222,20 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
         arg = arg.value_delimiter(delim);
     }
 
-    // Schema v2: Choices (possible values)
+    // Schema v2: Choices (possible values) - takes precedence over value_type
     if let Some(ref choices) = arg_config.choices {
         arg = arg.value_parser(clap::builder::PossibleValuesParser::new(choices.clone()));
+    } else {
+        // Schema v2: Apply value_type parser if no choices specified
+        match arg_config.value_type {
+            ValueType::String => {} // Default, no special parser
+            ValueType::Int => {
+                arg = arg.value_parser(clap::value_parser!(i64));
+            }
+            ValueType::Bool => {
+                arg = arg.value_parser(clap::builder::PossibleValuesParser::new(["true", "false"]));
+            }
+        }
     }
 
     arg
@@ -282,12 +293,23 @@ fn extract_values(args: &[ArgConfig], matches: &clap::ArgMatches) -> HashMap<Str
                 }
             }
             ArgType::Option | ArgType::Positional => {
+                // Check if we need to handle i64 values (when value_type is Int and no choices)
+                let is_int_type =
+                    arg_config.value_type == ValueType::Int && arg_config.choices.is_none();
+
                 if arg_config.multiple {
                     // Multiple values: get all
-                    let values: Vec<String> = matches
-                        .get_many::<String>(name)
-                        .map(|v| v.cloned().collect())
-                        .unwrap_or_default();
+                    let values: Vec<String> = if is_int_type {
+                        matches
+                            .get_many::<i64>(name)
+                            .map(|v| v.map(|n| n.to_string()).collect())
+                            .unwrap_or_default()
+                    } else {
+                        matches
+                            .get_many::<String>(name)
+                            .map(|v| v.cloned().collect())
+                            .unwrap_or_default()
+                    };
 
                     if !values.is_empty() {
                         results.insert(name.clone(), ParsedValue::Multiple(values));
@@ -296,8 +318,14 @@ fn extract_values(args: &[ArgConfig], matches: &clap::ArgMatches) -> HashMap<Str
                     }
                 } else {
                     // Single value
-                    if let Some(value) = matches.get_one::<String>(name) {
-                        results.insert(name.clone(), ParsedValue::Single(value.clone()));
+                    let value_opt: Option<String> = if is_int_type {
+                        matches.get_one::<i64>(name).map(|n| n.to_string())
+                    } else {
+                        matches.get_one::<String>(name).cloned()
+                    };
+
+                    if let Some(value) = value_opt {
+                        results.insert(name.clone(), ParsedValue::Single(value));
                     } else if let Some(ref default) = arg_config.default {
                         results.insert(name.clone(), ParsedValue::Single(default.clone()));
                     }
@@ -1219,6 +1247,173 @@ mod tests {
                 assert_eq!(v, &vec!["a".to_string(), "b".to_string()]);
             }
             other => panic!("Expected Multiple, got {:?}", other),
+        }
+    }
+
+    // Value type tests
+
+    #[test]
+    fn test_value_type_int_valid() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"count","long":"count","type":"option","value_type":"int"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--count", "42"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("count"), Some(&"42".to_string()));
+    }
+
+    #[test]
+    fn test_value_type_int_negative() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"count","long":"count","type":"option","value_type":"int"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--count", "-10"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("count"), Some(&"-10".to_string()));
+    }
+
+    #[test]
+    fn test_value_type_int_invalid() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"count","long":"count","type":"option","value_type":"int"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = parse_args(&config, &to_args(&["--count", "abc"]), get_name(&config));
+        match result {
+            ParseOutcome::Error(msg) => {
+                assert!(
+                    msg.contains("abc") || msg.contains("invalid"),
+                    "Error should mention invalid value: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_value_type_bool_true() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"enabled","long":"enabled","type":"option","value_type":"bool"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--enabled", "true"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("enabled"), Some(&"true".to_string()));
+    }
+
+    #[test]
+    fn test_value_type_bool_false() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"enabled","long":"enabled","type":"option","value_type":"bool"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--enabled", "false"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("enabled"), Some(&"false".to_string()));
+    }
+
+    #[test]
+    fn test_value_type_bool_invalid() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"enabled","long":"enabled","type":"option","value_type":"bool"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = parse_args(&config, &to_args(&["--enabled", "yes"]), get_name(&config));
+        match result {
+            ParseOutcome::Error(msg) => {
+                assert!(
+                    msg.contains("yes") || msg.contains("invalid"),
+                    "Error should mention invalid value: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_value_type_string_accepts_any() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"name","long":"name","type":"option","value_type":"string"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--name", "anything goes here!"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("name"), Some(&"anything goes here!".to_string()));
+    }
+
+    #[test]
+    fn test_value_type_int_positional() {
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"port","type":"positional","value_type":"int"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(&config, &to_args(&["8080"]), get_name(&config)));
+        assert_eq!(result.get("port"), Some(&"8080".to_string()));
+    }
+
+    #[test]
+    fn test_value_type_choices_takes_precedence() {
+        // When both choices and value_type are specified, choices takes precedence
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"level","long":"level","type":"option","value_type":"int","choices":["1","2","3"]}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        // "1" is accepted because it's in choices
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--level", "1"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("level"), Some(&"1".to_string()));
+
+        // "4" is rejected because it's not in choices (even though it's a valid int)
+        let result2 = parse_args(&config, &to_args(&["--level", "4"]), get_name(&config));
+        match result2 {
+            ParseOutcome::Error(msg) => {
+                assert!(
+                    msg.contains("4") || msg.contains("invalid"),
+                    "Error should mention invalid value: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Error, got {:?}", other),
         }
     }
 }
