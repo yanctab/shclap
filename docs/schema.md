@@ -18,6 +18,7 @@ See [Configuration Reference](configuration.md) for the complete field reference
 | Simple scripts with basic flags and options | v1 (default) |
 | Need environment variable fallback | v2 |
 | Need multiple values (arrays) | v2 |
+| Need value type validation (int, bool) | v2 |
 | Need subcommands like `git init`, `git commit` | v2 |
 
 ## Schema Version 1 (Default)
@@ -53,6 +54,7 @@ Version 1 does not support:
 - Environment variable fallback (`env` field)
 - Multiple values (`multiple` field)
 - Value choices/enums (`choices` field)
+- Value type validation (`value_type` field)
 - Subcommands (`subcommands` field)
 
 ## Schema Version 2
@@ -155,6 +157,38 @@ Choices work with both options and positional arguments:
 - The choices array must have at least one value
 - Duplicate values in choices are not allowed
 - Valid values are shown in help output
+
+### Value Type Validation
+
+Validate that argument values match expected types using the `value_type` field. Invalid values will be rejected with clear error messages.
+
+```json
+{"name": "count", "long": "count", "type": "option", "value_type": "int"}
+{"name": "enabled", "long": "enabled", "type": "option", "value_type": "bool"}
+{"name": "port", "type": "positional", "value_type": "int"}
+```
+
+**Supported types:**
+
+| Type | Description | Valid Examples | Invalid Examples |
+|------|-------------|----------------|------------------|
+| `string` | Any string value (default) | Any value | N/A |
+| `int` | Signed 64-bit integer | `42`, `-10`, `0` | `abc`, `3.14` |
+| `bool` | Strict boolean | `true`, `false` | `yes`, `no`, `1`, `0` |
+
+```bash
+$ myapp --count 42        # OK
+$ myapp --count abc       # Error: invalid digit found in string
+$ myapp --count -10       # OK (negatives allowed for int)
+$ myapp --enabled true    # OK
+$ myapp --enabled yes     # Error: invalid value 'yes'
+```
+
+**Notes:**
+- `value_type` cannot be used with flags (flags are inherently boolean by presence/absence)
+- If not specified, defaults to `string` (no validation)
+- If both `choices` and `value_type` are specified, `choices` takes precedence (it's more restrictive)
+- `bool` uses strict `true`/`false` only—not `yes`/`no` or `1`/`0`
 
 ### Subcommands
 

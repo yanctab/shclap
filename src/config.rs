@@ -48,6 +48,9 @@ pub enum ConfigError {
 
     #[error("'choices' cannot be used with flag type on argument '{0}'")]
     ChoicesOnFlag(String),
+
+    #[error("'value_type' cannot be used with flag type on argument '{0}'")]
+    ValueTypeOnFlag(String),
 }
 
 /// The type of argument.
@@ -60,6 +63,20 @@ pub enum ArgType {
     Option,
     /// A positional argument
     Positional,
+}
+
+/// Value type for validation (schema_version >= 2).
+/// Determines how argument values are validated.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ValueType {
+    /// Any string value (default, no validation)
+    #[default]
+    String,
+    /// Signed 64-bit integer
+    Int,
+    /// Boolean (strict "true" or "false" only)
+    Bool,
 }
 
 /// Configuration for a single argument.
@@ -95,6 +112,10 @@ pub struct ArgConfig {
     /// Allowed values for this argument (schema_version >= 2)
     #[serde(default)]
     pub choices: Option<Vec<String>>,
+    /// Value type for validation (schema_version >= 2)
+    /// Options: "string" (default), "int", "bool"
+    #[serde(default)]
+    pub value_type: ValueType,
 }
 
 /// Configuration for a subcommand (schema_version >= 2).
@@ -225,6 +246,12 @@ impl Config {
                 arg.name.clone(),
             ));
         }
+        if arg.value_type != ValueType::String {
+            return Err(ConfigError::FieldRequiresV2(
+                "value_type".to_string(),
+                arg.name.clone(),
+            ));
+        }
         Ok(())
     }
 
@@ -248,6 +275,7 @@ impl Config {
                 validate_num_args_format(num_args)?;
             }
             Self::validate_choices(arg)?;
+            Self::validate_value_type(arg)?;
         }
 
         Ok(())
@@ -276,6 +304,15 @@ impl Config {
                     ));
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Validate value_type field on an argument.
+    fn validate_value_type(arg: &ArgConfig) -> Result<(), ConfigError> {
+        // value_type cannot be used with flags (flags are boolean by nature)
+        if arg.value_type != ValueType::String && arg.arg_type == ArgType::Flag {
+            return Err(ConfigError::ValueTypeOnFlag(arg.name.clone()));
         }
         Ok(())
     }
@@ -330,6 +367,7 @@ impl ArgConfig {
             || self.num_args.is_some()
             || self.delimiter.is_some()
             || self.choices.is_some()
+            || self.value_type != ValueType::String
     }
 
     /// Get the effective long option for this argument.
@@ -736,6 +774,7 @@ mod tests {
             num_args: None,
             delimiter: None,
             choices: None,
+            value_type: ValueType::String,
         };
         assert!(!v1_arg.uses_v2_features());
 
@@ -768,6 +807,13 @@ mod tests {
             ..v1_arg.clone()
         };
         assert!(v2_arg_choices.uses_v2_features());
+
+        let v2_arg_value_type = ArgConfig {
+            arg_type: ArgType::Option,
+            value_type: ValueType::Int,
+            ..v1_arg.clone()
+        };
+        assert!(v2_arg_value_type.uses_v2_features());
     }
 
     #[test]
@@ -786,6 +832,7 @@ mod tests {
             num_args: None,
             delimiter: None,
             choices: None,
+            value_type: ValueType::String,
         };
         assert_eq!(arg.effective_long(), Some("verbose"));
     }
@@ -806,6 +853,7 @@ mod tests {
             num_args: None,
             delimiter: None,
             choices: None,
+            value_type: ValueType::String,
         };
         assert_eq!(arg.effective_long(), Some("verbose"));
     }
@@ -826,6 +874,7 @@ mod tests {
             num_args: None,
             delimiter: None,
             choices: None,
+            value_type: ValueType::String,
         };
         assert_eq!(arg.effective_long(), None);
     }
@@ -846,6 +895,7 @@ mod tests {
             num_args: None,
             delimiter: None,
             choices: None,
+            value_type: ValueType::String,
         };
         assert_eq!(arg.effective_long(), None);
     }
@@ -961,7 +1011,124 @@ mod tests {
             num_args: None,
             delimiter: None,
             choices: Some(vec!["json".to_string(), "yaml".to_string()]),
+            value_type: ValueType::String,
         };
         assert!(arg.uses_v2_features());
+    }
+
+    // Value type validation tests
+
+    #[test]
+    fn test_valid_value_type_on_option() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "count", "long": "count", "type": "option", "value_type": "int"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.args[0].value_type, ValueType::Int);
+    }
+
+    #[test]
+    fn test_valid_value_type_on_positional() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "port", "type": "positional", "value_type": "int"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.args[0].value_type, ValueType::Int);
+    }
+
+    #[test]
+    fn test_valid_value_type_bool() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "enabled", "long": "enabled", "type": "option", "value_type": "bool"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.args[0].value_type, ValueType::Bool);
+    }
+
+    #[test]
+    fn test_error_value_type_in_v1_config() {
+        let json = r#"{
+            "schema_version": 1,
+            "name": "test",
+            "args": [
+                {"name": "count", "long": "count", "type": "option", "value_type": "int"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::FieldRequiresV2(field, _)) if field == "value_type")
+        );
+    }
+
+    #[test]
+    fn test_error_value_type_on_flag() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "verbose", "short": "v", "type": "flag", "value_type": "int"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(
+            result,
+            Err(ConfigError::ValueTypeOnFlag(name)) if name == "verbose"
+        ));
+    }
+
+    #[test]
+    fn test_default_value_type_is_string() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "output", "long": "output", "type": "option"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.args[0].value_type, ValueType::String);
+    }
+
+    #[test]
+    fn test_uses_v2_features_with_value_type() {
+        let arg = ArgConfig {
+            name: "count".to_string(),
+            short: None,
+            long: Some("count".to_string()),
+            arg_type: ArgType::Option,
+            required: false,
+            default: None,
+            help: None,
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
+            choices: None,
+            value_type: ValueType::Int,
+        };
+        assert!(arg.uses_v2_features());
+
+        let string_arg = ArgConfig {
+            value_type: ValueType::String,
+            ..arg.clone()
+        };
+        assert!(!string_arg.uses_v2_features());
     }
 }
