@@ -66,11 +66,114 @@ Both configurations accept `--verbose` and `--output`.
 
 ## Argument Types
 
-| Type | Description | Example | Output |
-|------|-------------|---------|--------|
-| `flag` | Boolean switch, no value | `-v`, `--verbose` | `"true"` or `"false"` |
-| `option` | Takes a value | `-o file`, `--output=file` | The provided value |
-| `positional` | Positional argument | `input.txt` | The provided value |
+shclap supports three argument types, each with distinct behavior.
+
+### Flag
+
+A boolean switch that takes no value. Its presence sets the variable to `"true"`, absence to `"false"`.
+
+**Syntax:** `-v`, `--verbose`
+
+**Output:** `"true"` or `"false"`
+
+```json
+{"name": "verbose", "short": "v", "type": "flag"}
+```
+
+```bash
+./script.sh -v           # $SHCLAP_VERBOSE = "true"
+./script.sh --verbose    # $SHCLAP_VERBOSE = "true"
+./script.sh              # $SHCLAP_VERBOSE = "false"
+```
+
+**With `multiple: true` (v2):** Counts occurrences instead of boolean.
+
+```json
+{"name": "verbose", "short": "v", "type": "flag", "multiple": true}
+```
+
+```bash
+./script.sh -v           # $SHCLAP_VERBOSE = "1"
+./script.sh -vvv         # $SHCLAP_VERBOSE = "3"
+./script.sh              # $SHCLAP_VERBOSE = "0"
+```
+
+### Option
+
+Takes a value. Can be specified with various syntaxes.
+
+**Syntax:** `-o file`, `-ofile`, `--output file`, `--output=file`
+
+**Output:** The provided value (or default if not specified)
+
+```json
+{"name": "output", "short": "o", "type": "option"}
+```
+
+```bash
+./script.sh -o file.txt        # $SHCLAP_OUTPUT = "file.txt"
+./script.sh -ofile.txt         # $SHCLAP_OUTPUT = "file.txt"
+./script.sh --output file.txt  # $SHCLAP_OUTPUT = "file.txt"
+./script.sh --output=file.txt  # $SHCLAP_OUTPUT = "file.txt"
+```
+
+**With `multiple: true` (v2):** Collects values as a bash array.
+
+```json
+{"name": "file", "short": "f", "type": "option", "multiple": true}
+```
+
+```bash
+./script.sh -f a.txt -f b.txt  # $SHCLAP_FILE = ("a.txt" "b.txt")
+```
+
+### Positional
+
+Identified by position, not by flags. Order matters.
+
+**Syntax:** Values without dashes, in order
+
+**Output:** The provided value
+
+```json
+{
+  "args": [
+    {"name": "input", "type": "positional"},
+    {"name": "output", "type": "positional"}
+  ]
+}
+```
+
+```bash
+./script.sh source.txt dest.txt
+# $SHCLAP_INPUT = "source.txt"
+# $SHCLAP_OUTPUT = "dest.txt"
+```
+
+**With `multiple: true` (v2):** The last positional collects remaining arguments as an array.
+
+```json
+{
+  "args": [
+    {"name": "command", "type": "positional"},
+    {"name": "files", "type": "positional", "multiple": true}
+  ]
+}
+```
+
+```bash
+./script.sh build a.txt b.txt c.txt
+# $SHCLAP_COMMAND = "build"
+# $SHCLAP_FILES = ("a.txt" "b.txt" "c.txt")
+```
+
+### Type Comparison
+
+| Type | Identified By | Takes Value | Default Output | With `multiple` |
+|------|--------------|-------------|----------------|-----------------|
+| `flag` | `-x`, `--name` | No | `"true"`/`"false"` | Count (`"3"`) |
+| `option` | `-x val`, `--name=val` | Yes | Provided value | Array |
+| `positional` | Position (order) | Yes | Provided value | Array (last only) |
 
 ## Complete Example
 
@@ -168,5 +271,6 @@ For example, with default prefix `SHCLAP_`:
 ## See Also
 
 - [Schema Reference](schema.md) - Schema versioning and v2 features
+- [Environment Variables](environment-variables.md) - Environment variable handling
 - [Examples](examples.md) - Complete working examples
 - [CLI Reference](cli-reference.md) - Command-line options

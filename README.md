@@ -80,8 +80,9 @@ make setup-build-env && make release && make install
 
 - [Configuration Reference](docs/configuration.md)
 - [Schema Reference](docs/schema.md)
-- [Examples](docs/examples.md) — More complex use cases
+- [Environment Variables](docs/environment-variables.md)
 - [CLI Reference](docs/cli-reference.md)
+- [Examples](docs/examples.md)
 
 ## Development
 

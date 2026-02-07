@@ -3,6 +3,8 @@
 shclap \- clap-style argument parsing for shell scripts
 .SH SYNOPSIS
 .B shclap parse
+.RB [ \-\-name
+.IR NAME ]
 .RB [ \-\-prefix
 .IR PREFIX ]
 .B \-\-config
@@ -11,10 +13,14 @@ shclap \- clap-style argument parsing for shell scripts
 .IR ARGS ...
 .br
 .B shclap help
+.RB [ \-\-name
+.IR NAME ]
 .B \-\-config
 .I JSON
 .br
 .B shclap version
+.RB [ \-\-name
+.IR NAME ]
 .B \-\-config
 .I JSON
 .SH DESCRIPTION
@@ -52,6 +58,10 @@ directly to stdout.
 .TP
 .BI \-\-config " JSON"
 JSON configuration string defining the script's arguments. Required.
+.TP
+.BI \-\-name " NAME"
+Application name. Overrides the name specified in config. If neither CLI
+\-\-name nor config "name" field is provided, shclap returns an error.
 .TP
 .BI \-\-prefix " PREFIX"
 Environment variable prefix. Overrides the prefix specified in config.
@@ -110,7 +120,7 @@ Schema version number. Optional, defaults to 1. Set to 2 to enable extended
 features like environment variable fallback, multiple values, and subcommands.
 .TP
 .B name
-Script name. Required. Used in help output.
+Script name. Optional if provided via CLI \-\-name flag. Used in help output.
 .TP
 .B description
 Script description. Optional. Shown in help output.
@@ -177,6 +187,17 @@ Value count per occurrence. Examples: "2" (exactly 2), "1.." (1 or more),
 .B delimiter
 Character to split a single value into multiple. E.g., "," splits
 "a,b,c" into ("a" "b" "c").
+.TP
+.B choices
+Array of allowed values for this argument. Invalid values are rejected with
+a clear error message listing valid options. Cannot be used with flags.
+Example: ["json", "yaml", "toml"]
+.TP
+.B value_type
+Value type validation. One of: "string" (default, no validation), "int"
+(signed 64-bit integer), or "bool" (strict true/false only). Cannot be used
+with flags. If both choices and value_type are specified, choices takes
+precedence.
 .SS "Subcommands (Schema Version 2)"
 .TP
 .B subcommands
@@ -237,6 +258,36 @@ Successful parse, or \-\-help/\-\-version requested.
 .TP
 .B 1
 Parse error (unknown option, missing required argument, etc.).
+.SH ERROR MESSAGES
+When parsing fails, errors are delivered via the sourced temp file, which
+prints to stderr and exits. Common error formats:
+.TP
+.B Unknown option
+shclap: unknown option: \-\-foo
+.TP
+.B Missing required argument
+shclap: missing required argument: input
+.TP
+.B Missing value for option
+shclap: missing value for option: \-\-output
+.TP
+.B Invalid choice
+shclap: invalid value 'xml' for '\-\-format': valid values: json, yaml, toml
+.TP
+.B Invalid type (int)
+shclap: invalid digit found in string
+.TP
+.B Invalid type (bool)
+shclap: invalid value 'yes': valid values: true, false
+.TP
+.B Invalid JSON config
+shclap: failed to parse JSON config: ...
+.TP
+.B Duplicate argument name
+shclap: duplicate argument name: verbose
+.TP
+.B Unsupported schema version
+shclap: unsupported schema version 99 (supported: 1-2)
 .SH EXAMPLES
 .SS "Basic Script"
 .PP

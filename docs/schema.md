@@ -71,44 +71,52 @@ Enable version 2 by adding `"schema_version": 2` to your configuration:
 
 ### Environment Variable Fallback
 
-In schema v2, arguments automatically fall back to environment variables when not provided on the command line. The env var name is `PREFIX + ARG_NAME` (uppercased):
+Schema v2 enables automatic fallback to environment variables when arguments aren't provided on the command line.
+
+**Priority order:**
+
+```
+CLI argument  >  Environment variable  >  Default value
+  (highest)         (fallback)            (lowest)
+```
+
+**Quick example:**
 
 ```bash
 CONFIG='{
   "schema_version": 2,
-  "name": "myapp",
   "prefix": "MYAPP_",
   "args": [
-    {"name": "config", "long": "config", "type": "option"}
+    {"name": "config", "type": "option", "default": "/etc/app.conf"}
   ]
 }'
-export MYAPP_CONFIG="/etc/myapp.conf"
-source $(shclap parse --config "$CONFIG" -- "$@")
-# $MYAPP_CONFIG comes from --config or $MYAPP_CONFIG env var
+
+# Scenario 1: CLI wins
+export MYAPP_CONFIG="/home/override"
+./script.sh --config="/tmp/test"    # Result: /tmp/test
+
+# Scenario 2: Env fallback
+export MYAPP_CONFIG="/home/override"
+./script.sh                          # Result: /home/override
+
+# Scenario 3: Default used
+unset MYAPP_CONFIG
+./script.sh                          # Result: /etc/app.conf
 ```
 
-**Controlling env fallback:**
+**Auto-env naming:** `PREFIX` + `ARG_NAME` (uppercased, hyphens become underscores)
 
-| `env` field | Behavior |
+Example: `prefix="APP_"`, `name="api-key"` → checks `$APP_API_KEY`
+
+**Controlling fallback with the `env` field:**
+
+| `env` Value | Behavior |
 |-------------|----------|
-| Not specified | Auto-env: reads from `PREFIX + ARG_NAME` |
-| `false` | Disabled: never reads from environment |
-| `"VAR_NAME"` | Custom: reads from specified var |
+| Not specified | Auto: reads `PREFIX + ARG_NAME` |
+| `false` | Disabled: never reads from env |
+| `"VAR_NAME"` | Custom: reads specified variable |
 
-```json
-{
-  "args": [
-    {"name": "config", "type": "option"},                    // auto: $MYAPP_CONFIG
-    {"name": "secret", "type": "option", "env": false},      // disabled
-    {"name": "key", "type": "option", "env": "LEGACY_KEY"}   // custom: $LEGACY_KEY
-  ]
-}
-```
-
-**Priority order:**
-1. Command-line argument (highest)
-2. Environment variable (fallback)
-3. Default value (if specified)
+For complete documentation, see [Environment Variables](environment-variables.md).
 
 ### Multiple Values
 
@@ -312,5 +320,6 @@ Version 2 is fully backwards-compatible with version 1 configurations.
 ## See Also
 
 - [Configuration Reference](configuration.md) - Full JSON schema reference
+- [Environment Variables](environment-variables.md) - Environment variable handling
 - [Examples](examples.md) - Complete working examples
 - [CLI Reference](cli-reference.md) - Command-line options

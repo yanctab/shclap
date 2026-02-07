@@ -236,11 +236,11 @@ Each task follows this workflow:
 - ~~Do we need to be able to define if a value should be string, bool or int?~~ (Implemented as `value_type` field in schema v2)
 
 ### Documentation
-- Clarify "Environment variable fallback for options" in the schematic v2 I don't understand it.
-- Go over how errors are handled like if a flag name is wrong show by example if not already done.
-- We also need to clearly cover in the documentation how env variables are managed maybe in its own md-file under docs.
-- We also need to clearly cover how the --help flag is managed by the script and how shclap help can be used by script to print out help for the arguments.
-- We need to clarify the different types and how they work flag, option and positional
+- ~~Clarify "Environment variable fallback for options" in the schematic v2 I don't understand it.~~
+- ~~Go over how errors are handled like if a flag name is wrong show by example if not already done.~~
+- ~~We also need to clearly cover in the documentation how env variables are managed maybe in its own md-file under docs.~~
+- ~~We also need to clearly cover how the --help flag is managed by the script and how shclap help can be used by script to print out help for the arguments.~~
+- ~~We need to clarify the different types and how they work flag, option and positional~~
 
 ### Print How The script was called
 - We should add a shclap print that could be called by the script this should then print out all <scriptname> followed by all the flags used when calling the script. If it is a mix of flags and env convert the env varibles to matching flags.
