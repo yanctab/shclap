@@ -57,3 +57,12 @@ GitHub Actions runs on PRs to main:
 2. `make lint`
 3. `make unit-test`
 4. `make release` + `make integration-test`
+
+## Backlog Workflow
+
+When completing a task from `BACKLOG.md`:
+
+1. Run `make check` before committing
+2. Update documentation in `docs/` if the feature affects user-facing behavior
+3. Mark the task as complete with ~~strikethrough~~ in `BACKLOG.md`
+4. Commit and push
