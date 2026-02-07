@@ -242,8 +242,8 @@ Each task follows this workflow:
 - ~~We also need to clearly cover how the --help flag is managed by the script and how shclap help can be used by script to print out help for the arguments.~~
 - ~~We need to clarify the different types and how they work flag, option and positional~~
 
-### Print How The script was called
-- We should add a shclap print that could be called by the script this should then print out all <scriptname> followed by all the flags used when calling the script. If it is a mix of flags and env convert the env varibles to matching flags.
+### ~~Print How The script was called~~
+- ~~We should add a shclap print that could be called by the script this should then print out all <scriptname> followed by all the flags used when calling the script. If it is a mix of flags and env convert the env varibles to matching flags.~~
 
 ### Default Value
 - ~~Each flag should be able to define a default value so it should be possible to either supply a flag with a value or not supply the flag to the script but if there is a default value then the env in the script should be set using this value or the variable is defined as an env outside of the script.~~ (Already implemented)

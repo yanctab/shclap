@@ -666,6 +666,52 @@ else
 fi
 
 
+section "16. Print Command"
+
+# Test: shclap print reconstructs command line
+run_test
+CONFIG='{"name":"myapp","args":[
+    {"name":"verbose","short":"v","type":"flag"},
+    {"name":"output","short":"o","type":"option"},
+    {"name":"input","type":"positional"}
+]}'
+# First parse to set env vars
+source "$("$SHCLAP" parse --config "$CONFIG" -- -v -o result.txt data.csv)"
+# Then use print to reconstruct
+PRINT_OUTPUT=$("$SHCLAP" print --config "$CONFIG" --name myapp)
+if echo "$PRINT_OUTPUT" | grep -q "myapp" && echo "$PRINT_OUTPUT" | grep -q "verbose\|\\-v" && echo "$PRINT_OUTPUT" | grep -q "result.txt"; then
+    pass "shclap print reconstructs command line"
+else
+    fail "print command" "myapp --verbose --output=result.txt data.csv" "$PRINT_OUTPUT"
+fi
+
+# Test: shclap print with no args set
+run_test
+CONFIG='{"name":"myapp","args":[{"name":"debug","type":"flag"}]}'
+# Clear env
+unset SHCLAP_DEBUG 2>/dev/null || true
+PRINT_OUTPUT=$("$SHCLAP" print --config "$CONFIG" --name myapp --prefix EMPTY_)
+if [[ "$PRINT_OUTPUT" == "myapp" ]]; then
+    pass "shclap print with no args returns just name"
+else
+    fail "print empty" "myapp" "$PRINT_OUTPUT"
+fi
+
+# Test: shclap print with custom prefix
+run_test
+CONFIG='{"name":"deploy","prefix":"DEPLOY_","args":[
+    {"name":"target","type":"option"}
+]}'
+export DEPLOY_TARGET="production"
+PRINT_OUTPUT=$("$SHCLAP" print --config "$CONFIG" --name deploy)
+unset DEPLOY_TARGET
+if echo "$PRINT_OUTPUT" | grep -q "deploy" && echo "$PRINT_OUTPUT" | grep -q "production"; then
+    pass "shclap print with custom prefix"
+else
+    fail "print custom prefix" "deploy --target=production" "$PRINT_OUTPUT"
+fi
+
+
 #
 # Summary
 #

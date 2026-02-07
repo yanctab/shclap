@@ -17,6 +17,7 @@ pub use help::{generate_help, generate_version};
 pub use output::{
     generate_error_output, generate_error_string, generate_help_output,
     generate_help_output_string, generate_output, generate_output_string,
-    generate_output_string_legacy, generate_version_output, generate_version_output_string,
+    generate_output_string_legacy, generate_print, generate_version_output,
+    generate_version_output_string,
 };
 pub use parser::{parse_args, ParseError, ParseOutcome, ParseResult, ParseSuccess, ParsedValue};

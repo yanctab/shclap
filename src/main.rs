@@ -3,8 +3,8 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use shclap::{
-    generate_error_output, generate_help, generate_help_output, generate_output, generate_version,
-    generate_version_output, parse_args, Config, ParseOutcome,
+    generate_error_output, generate_help, generate_help_output, generate_output, generate_print,
+    generate_version, generate_version_output, parse_args, Config, ParseOutcome,
 };
 
 /// Clap-style argument parsing for shell scripts.
@@ -56,6 +56,21 @@ enum Commands {
         /// Application name (overrides config 'name' field)
         #[arg(long)]
         name: Option<String>,
+    },
+
+    /// Print how the script was called (reconstructs command line from env vars)
+    Print {
+        /// JSON configuration for the target script
+        #[arg(long)]
+        config: String,
+
+        /// Application name (overrides config 'name' field)
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Environment variable prefix (overrides config)
+        #[arg(long)]
+        prefix: Option<String>,
     },
 }
 
@@ -152,6 +167,31 @@ fn main() -> Result<()> {
             };
 
             print!("{}", generate_version(&cfg, &effective_name));
+        }
+        Commands::Print {
+            config,
+            name,
+            prefix,
+        } => {
+            let cfg = Config::from_json(&config).context("failed to parse config JSON")?;
+
+            // Determine effective name: CLI --name takes priority over config name
+            let effective_name = match (name.as_deref(), cfg.name.as_deref()) {
+                (Some(cli_name), _) => cli_name.to_string(),
+                (None, Some(config_name)) => config_name.to_string(),
+                (None, None) => {
+                    anyhow::bail!(
+                        "no application name provided: use --name or set 'name' in config"
+                    );
+                }
+            };
+
+            let effective_prefix = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
+
+            println!(
+                "{}",
+                generate_print(&cfg, &effective_name, effective_prefix)
+            );
         }
     }
 

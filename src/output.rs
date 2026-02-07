@@ -1,8 +1,10 @@
 //! Temporary file generation with shell export statements and special outputs.
 
+use crate::config::{ArgType, Config};
 use crate::parser::ParsedValue;
 use anyhow::Result;
 use std::collections::HashMap;
+use std::env;
 use std::io::Write;
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
@@ -169,6 +171,98 @@ pub fn generate_version_output_string(version_text: &str) -> String {
         delimiter = VERSION_DELIMITER,
         text = version_text
     )
+}
+
+/// Generate a reconstructed command line from environment variables.
+///
+/// Reads the current environment variables (set by sourcing shclap's output)
+/// and reconstructs how the script was called. This is useful for logging
+/// or debugging.
+///
+/// # Arguments
+/// * `config` - The script's configuration
+/// * `name` - The script name to display
+/// * `prefix` - The environment variable prefix used
+///
+/// # Returns
+/// A string like: `scriptname --flag --option=value positional`
+pub fn generate_print(config: &Config, name: &str, prefix: &str) -> String {
+    let mut parts: Vec<String> = vec![name.to_string()];
+    let mut positionals: Vec<String> = Vec::new();
+
+    // Process all args from config
+    for arg in &config.args {
+        let var_name = format!("{}{}", prefix, to_shell_var_name(&arg.name));
+
+        if let Ok(value) = env::var(&var_name) {
+            match arg.arg_type {
+                ArgType::Flag => {
+                    // For flags, only add if value is "true" or a count > 0
+                    if value == "true" {
+                        // Use long form if available, otherwise short
+                        if let Some(ref long) = arg.long {
+                            parts.push(format!("--{}", long));
+                        } else if let Some(ref long) = arg.effective_long() {
+                            parts.push(format!("--{}", long));
+                        } else if let Some(short) = arg.short {
+                            parts.push(format!("-{}", short));
+                        }
+                    } else if let Ok(count) = value.parse::<u32>() {
+                        // Multiple flag (count)
+                        if count > 0 {
+                            if let Some(short) = arg.short {
+                                // Output as -vvv for count=3
+                                parts
+                                    .push(format!("-{}", short.to_string().repeat(count as usize)));
+                            } else if let Some(ref long) = arg.long {
+                                // Repeat the flag
+                                for _ in 0..count {
+                                    parts.push(format!("--{}", long));
+                                }
+                            } else if let Some(ref long) = arg.effective_long() {
+                                for _ in 0..count {
+                                    parts.push(format!("--{}", long));
+                                }
+                            }
+                        }
+                    }
+                }
+                ArgType::Option => {
+                    if !value.is_empty() {
+                        // Use long form with = syntax
+                        if let Some(ref long) = arg.long {
+                            parts.push(format!("--{}={}", long, shell_quote(&value)));
+                        } else if let Some(ref long) = arg.effective_long() {
+                            parts.push(format!("--{}={}", long, shell_quote(&value)));
+                        } else if let Some(short) = arg.short {
+                            parts.push(format!("-{}", short));
+                            parts.push(shell_quote(&value));
+                        }
+                    }
+                }
+                ArgType::Positional => {
+                    if !value.is_empty() {
+                        positionals.push(shell_quote(&value));
+                    }
+                }
+            }
+        }
+    }
+
+    // Add positionals at the end
+    parts.extend(positionals);
+
+    parts.join(" ")
+}
+
+/// Quote a value for shell if it contains special characters.
+fn shell_quote(value: &str) -> String {
+    if value.is_empty() || value.contains(|c: char| c.is_whitespace() || "\"'$`\\!".contains(c)) {
+        // Use single quotes, escaping any single quotes in the value
+        format!("'{}'", value.replace('\'', "'\\''"))
+    } else {
+        value.to_string()
+    }
 }
 
 /// Write content to a temporary file and return its path.
@@ -458,5 +552,85 @@ mod tests {
         assert!(contents.contains("exit 0"));
 
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_generate_print_basic() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{
+            "name": "myapp",
+            "args": [
+                {"name": "verbose", "short": "v", "type": "flag"},
+                {"name": "output", "short": "o", "type": "option"},
+                {"name": "input", "type": "positional"}
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        // Set environment variables
+        env::set_var("TEST_VERBOSE", "true");
+        env::set_var("TEST_OUTPUT", "file.txt");
+        env::set_var("TEST_INPUT", "input.txt");
+
+        let result = generate_print(&config, "myapp", "TEST_");
+
+        // Clean up
+        env::remove_var("TEST_VERBOSE");
+        env::remove_var("TEST_OUTPUT");
+        env::remove_var("TEST_INPUT");
+
+        assert!(result.starts_with("myapp"));
+        assert!(result.contains("--verbose") || result.contains("-v"));
+        assert!(result.contains("--output=file.txt") || result.contains("-o"));
+        assert!(result.contains("input.txt"));
+    }
+
+    #[test]
+    fn test_generate_print_no_values() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{
+            "name": "myapp",
+            "args": [
+                {"name": "verbose", "short": "v", "type": "flag"}
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        // Ensure var is not set
+        env::remove_var("EMPTY_VERBOSE");
+
+        let result = generate_print(&config, "myapp", "EMPTY_");
+
+        assert_eq!(result, "myapp");
+    }
+
+    #[test]
+    fn test_generate_print_special_chars() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{
+            "name": "myapp",
+            "args": [
+                {"name": "path", "type": "option"}
+            ]
+        }"#,
+        )
+        .unwrap();
+
+        // Set a value with spaces
+        env::set_var("SPECIAL_PATH", "path with spaces");
+
+        let result = generate_print(&config, "myapp", "SPECIAL_");
+
+        env::remove_var("SPECIAL_PATH");
+
+        assert!(result.contains("'path with spaces'"));
     }
 }

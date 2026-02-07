@@ -70,6 +70,46 @@ shclap version --config=<JSON> [--name=<NAME>]
 shclap version --config='{"version":"1.0.0"}' --name=myapp
 ```
 
+### `shclap print`
+
+Reconstruct and print how the script was called by reading the current environment variables. This is useful for logging or debugging.
+
+```bash
+shclap print --config=<JSON> [--name=<NAME>] [--prefix=<PREFIX>]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `--config=<JSON>` | JSON configuration string (required) |
+| `--name=<NAME>` | Application name (overrides config `name` field) |
+| `--prefix=<PREFIX>` | Environment variable prefix (default: `SHCLAP_`) |
+
+**Example:**
+
+```bash
+#!/bin/bash
+CONFIG='{
+  "name": "deploy",
+  "args": [
+    {"name": "target", "type": "option"},
+    {"name": "verbose", "short": "v", "type": "flag"}
+  ]
+}'
+source $(shclap parse --config "$CONFIG" -- "$@")
+
+# Log how the script was called
+echo "Running: $(shclap print --config "$CONFIG" --name deploy)"
+# Output: Running: deploy --target=production --verbose
+```
+
+**Notes:**
+- Reads values from environment variables set by sourcing `shclap parse` output
+- Converts environment variable values back to their flag/option format
+- Positional arguments appear at the end
+- Values with special characters are properly quoted
+
 ## Options
 
 ### `--config=<JSON>`

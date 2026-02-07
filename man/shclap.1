@@ -23,6 +23,14 @@ shclap \- clap-style argument parsing for shell scripts
 .IR NAME ]
 .B \-\-config
 .I JSON
+.br
+.B shclap print
+.RB [ \-\-name
+.IR NAME ]
+.RB [ \-\-prefix
+.IR PREFIX ]
+.B \-\-config
+.I JSON
 .SH DESCRIPTION
 .B shclap
 brings clap-style argument parsing to shell scripts. Define your CLI
@@ -53,6 +61,11 @@ directly to stdout.
 .B version
 Print the version of the target script (as defined in the JSON config)
 directly to stdout.
+.TP
+.B print
+Reconstruct and print how the script was called by reading current
+environment variables. Useful for logging or debugging. Converts env
+var values back to their flag/option format.
 .SH OPTIONS
 .SS "Parse Command Options"
 .TP
