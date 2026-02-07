@@ -64,6 +64,12 @@ All parsed arguments are exported as environment variables:
 
 ## Installation
 
+### From crates.io
+
+```bash
+cargo install shclap
+```
+
 ### From GitHub Releases
 
 Download from [Releases](https://github.com/yanctab/shclap/releases):
@@ -73,6 +79,8 @@ Download from [Releases](https://github.com/yanctab/shclap/releases):
 ### From Source
 
 ```bash
+git clone https://github.com/yanctab/shclap.git
+cd shclap
 make setup-build-env && make release && make install
 ```
 

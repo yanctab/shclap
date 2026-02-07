@@ -249,8 +249,8 @@ Each task follows this workflow:
 - ~~Each flag should be able to define a default value so it should be possible to either supply a flag with a value or not supply the flag to the script but if there is a default value then the env in the script should be set using this value or the variable is defined as an env outside of the script.~~ (Already implemented)
 
 ### Cargo
-- We should release this to cargo if it is possible to release a application using cargo also
-- Add support for installing shclap using cargo
+- ~~We should release this to cargo if it is possible to release a application using cargo also~~
+- ~~Add support for installing shclap using cargo~~
 
 ### ~~Make use of Make~~
 - ~~We are calling cargo instead of calling make targets in the github actions lets try and call make targets instead when suited.~~
