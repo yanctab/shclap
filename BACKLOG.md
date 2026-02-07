@@ -250,6 +250,7 @@ Each task follows this workflow:
 
 ### Cargo
 - We should release this to cargo if it is possible to release a application using cargo also
+- Add support for installing shclap using cargo
 
 ### ~~Make use of Make~~
 - ~~We are calling cargo instead of calling make targets in the github actions lets try and call make targets instead when suited.~~
