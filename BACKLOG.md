@@ -262,8 +262,8 @@ Each task follows this workflow:
 - ~~Opt-out with `env: false`, custom var with `env: "VAR_NAME"`~~
 - ~~v1 schema does not enable auto-env (backwards compatible)~~
 
-### Testing
-- We should have test coverage percentage
+### ~~Testing~~
+- ~~We should have test coverage percentage~~ (Added `make coverage` using cargo-tarpaulin, 74.91% coverage)
 ---
 
 

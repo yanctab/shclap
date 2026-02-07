@@ -4,9 +4,9 @@ BINARY_NAME := shclap
 CARGO := cargo
 INSTALL_PATH := /usr/local/bin
 MUSL_TARGET := x86_64-unknown-linux-musl
-RUST_VERSION := 1.81.0
+RUST_VERSION := 1.85.0
 
-.PHONY: help setup-build-env build release test unit-test integration-test fmt fmt-check lint check install uninstall clean deb install-deb uninstall-deb
+.PHONY: help setup-build-env build release test unit-test integration-test fmt fmt-check lint check install uninstall clean deb install-deb uninstall-deb coverage
 
 .DEFAULT_GOAL := help
 
@@ -15,7 +15,7 @@ help:
 	@echo "Available targets:"
 	@grep -E '^## [a-zA-Z]' $(MAKEFILE_LIST) | sed 's/## //' | awk -F ' - ' '{printf "  %-18s %s\n", $$1, $$2}'
 
-## setup-build-env - Install Rust, musl target, cargo-deb, and musl-tools
+## setup-build-env - Install Rust, musl target, cargo-deb, cargo-tarpaulin, and musl-tools
 setup-build-env:
 	@echo "Installing Rust $(RUST_VERSION)..."
 	rustup install $(RUST_VERSION)
@@ -26,6 +26,8 @@ setup-build-env:
 	sudo apt-get update && sudo apt-get install -y musl-tools
 	@echo "Installing cargo-deb..."
 	$(CARGO) install cargo-deb
+	@echo "Installing cargo-tarpaulin..."
+	$(CARGO) install cargo-tarpaulin@0.31.0
 	@echo "Build environment setup complete."
 
 ## build - Build the project in debug mode
@@ -89,3 +91,8 @@ install-deb:
 ## uninstall-deb - Remove the installed Debian package
 uninstall-deb:
 	sudo dpkg -r $(BINARY_NAME)
+
+## coverage - Generate test coverage report
+coverage:
+	$(CARGO) tarpaulin --out Html --out Stdout --output-dir coverage/
+	@echo "Coverage report generated in coverage/tarpaulin-report.html"

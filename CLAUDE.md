@@ -13,6 +13,7 @@ make unit-test          # Run Rust unit tests
 make integration-test   # Run shell integration tests
 make test               # Run all tests (unit + integration)
 make check              # Full check: fmt + lint + test
+make coverage           # Generate test coverage report
 make deb                # Build Debian package
 make clean              # Clean build artifacts
 ```
@@ -30,7 +31,7 @@ shclap is a CLI tool that enables declarative argument parsing for shell scripts
 
 ### Core Flow
 
-1. `main.rs` - Entry point using clap. Handles `parse`, `help`, and `version` subcommands
+1. `main.rs` - Entry point using clap. Handles `parse`, `help`, `version`, and `print` subcommands
 2. `config.rs` - JSON schema parsing and validation. Supports schema v1 (basic) and v2 (env fallback, multi-value, subcommands)
 3. `parser.rs` - Argument parsing logic. Returns `ParseOutcome` (Success, Help, Version, or Error)
 4. `output.rs` - Generates shell export statements written to a temp file
