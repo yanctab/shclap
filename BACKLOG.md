@@ -261,6 +261,9 @@ Each task follows this workflow:
 - ~~Implemented auto-env for schema v2: args automatically read from PREFIX + ARG_NAME~~
 - ~~Opt-out with `env: false`, custom var with `env: "VAR_NAME"`~~
 - ~~v1 schema does not enable auto-env (backwards compatible)~~
+
+### Testing
+- We should have test coverage percentage
 ---
 
 
