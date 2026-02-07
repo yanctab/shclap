@@ -63,6 +63,8 @@ GitHub Actions runs on PRs to main:
 When completing a task from `BACKLOG.md`:
 
 1. Run `make check` before committing
-2. Update documentation in `docs/` if the feature affects user-facing behavior
+2. Update documentation if the feature affects user-facing behavior:
+   - `docs/` - markdown documentation
+   - `man/shclap.1` - man page
 3. Mark the task as complete with ~~strikethrough~~ in `BACKLOG.md`
 4. Commit and push
