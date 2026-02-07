@@ -17,18 +17,21 @@ fn build_command(config: &Config, effective_name: &str) -> Command {
         cmd = cmd.about(description.clone());
     }
 
+    let prefix = config.effective_prefix();
+    let schema_version = config.schema_version;
+
     // Track positional index for ordering
     let mut positional_index = 1usize;
 
     // Add arguments from config
     for arg_config in &config.args {
-        let arg = build_arg(arg_config, &mut positional_index);
+        let arg = build_arg(arg_config, &mut positional_index, prefix, schema_version);
         cmd = cmd.arg(arg);
     }
 
     // Add subcommands (schema v2)
     for subcmd_config in &config.subcommands {
-        let subcmd = build_subcommand(subcmd_config);
+        let subcmd = build_subcommand(subcmd_config, prefix, schema_version);
         cmd = cmd.subcommand(subcmd);
     }
 
@@ -42,7 +45,7 @@ fn build_command(config: &Config, effective_name: &str) -> Command {
 }
 
 /// Build a Clap Command for a subcommand config.
-fn build_subcommand(config: &SubcommandConfig) -> Command {
+fn build_subcommand(config: &SubcommandConfig, prefix: &str, schema_version: u32) -> Command {
     let mut cmd = Command::new(config.name.clone());
 
     if let Some(ref help) = config.help {
@@ -54,7 +57,7 @@ fn build_subcommand(config: &SubcommandConfig) -> Command {
 
     // Add arguments
     for arg_config in &config.args {
-        let arg = build_arg(arg_config, &mut positional_index);
+        let arg = build_arg(arg_config, &mut positional_index, prefix, schema_version);
         cmd = cmd.arg(arg);
     }
 
@@ -62,7 +65,12 @@ fn build_subcommand(config: &SubcommandConfig) -> Command {
 }
 
 /// Build a Clap Arg from an ArgConfig.
-fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
+fn build_arg(
+    arg_config: &ArgConfig,
+    positional_index: &mut usize,
+    prefix: &str,
+    schema_version: u32,
+) -> Arg {
     let mut arg = Arg::new(arg_config.name.clone());
 
     match arg_config.arg_type {
@@ -125,8 +133,8 @@ fn build_arg(arg_config: &ArgConfig, positional_index: &mut usize) -> Arg {
         arg = arg.help(help.clone());
     }
 
-    // Schema v2: Environment variable fallback
-    if let Some(ref env_var) = arg_config.env {
+    // Schema v2: Environment variable fallback (auto-env or custom)
+    if let Some(env_var) = arg_config.effective_env(prefix, schema_version) {
         arg = arg.env(env_var);
     }
 

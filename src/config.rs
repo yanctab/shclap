@@ -79,6 +79,70 @@ pub enum ValueType {
     Bool,
 }
 
+/// Environment variable fallback setting (schema_version >= 2).
+///
+/// Controls how environment variable fallback works for an argument:
+/// - Not specified (None): Auto-env enabled, uses PREFIX + ARG_NAME
+/// - `false`: Disabled, never reads from environment
+/// - `"VAR_NAME"`: Custom env var name
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvSetting {
+    /// Explicitly disabled with `env: false`
+    Disabled,
+    /// Custom env var name with `env: "VAR_NAME"`
+    Custom(String),
+}
+
+impl<'de> Deserialize<'de> for EnvSetting {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::{self, Visitor};
+
+        struct EnvSettingVisitor;
+
+        impl<'de> Visitor<'de> for EnvSettingVisitor {
+            type Value = EnvSetting;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("false or a string")
+            }
+
+            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if value {
+                    // `env: true` is treated as auto-env, but since we use Option<EnvSetting>,
+                    // we return an error - the user should just omit the field for auto-env
+                    Err(de::Error::custom(
+                        "use `env: false` to disable or omit field for auto-env",
+                    ))
+                } else {
+                    Ok(EnvSetting::Disabled)
+                }
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(EnvSetting::Custom(value.to_string()))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(EnvSetting::Custom(value))
+            }
+        }
+
+        deserializer.deserialize_any(EnvSettingVisitor)
+    }
+}
+
 /// Configuration for a single argument.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ArgConfig {
@@ -100,8 +164,11 @@ pub struct ArgConfig {
     pub help: Option<String>,
 
     // Schema version 2 fields:
-    /// Environment variable to use as fallback (schema_version >= 2)
-    pub env: Option<String>,
+    /// Environment variable fallback setting (schema_version >= 2)
+    /// - Not specified: Auto-env using PREFIX + ARG_NAME
+    /// - `false`: Disabled
+    /// - `"VAR_NAME"`: Custom env var
+    pub env: Option<EnvSetting>,
     /// Allow multiple occurrences/values (schema_version >= 2)
     #[serde(default)]
     pub multiple: bool,
@@ -383,6 +450,32 @@ impl ArgConfig {
         }
         None
     }
+
+    /// Get the effective environment variable name for this argument.
+    ///
+    /// For schema v2+:
+    /// - `None` field: Auto-env using `PREFIX + ARG_NAME`
+    /// - `env: false`: Disabled
+    /// - `env: "VAR"`: Custom var name
+    ///
+    /// For schema v1:
+    /// - Always returns `None` (no env fallback in v1)
+    pub fn effective_env(&self, prefix: &str, schema_version: u32) -> Option<String> {
+        // v1 doesn't support env fallback
+        if schema_version < 2 {
+            return None;
+        }
+
+        match &self.env {
+            Some(EnvSetting::Disabled) => None,
+            Some(EnvSetting::Custom(var)) => Some(var.clone()),
+            None => {
+                // Auto-env: PREFIX + ARG_NAME (uppercased, hyphens to underscores)
+                let var_name = self.name.to_uppercase().replace('-', "_");
+                Some(format!("{}{}", prefix, var_name))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -598,7 +691,44 @@ mod tests {
         }"#;
         let config = Config::from_json(json).unwrap();
         config.validate().unwrap();
-        assert_eq!(config.args[0].env, Some("INPUT_FILE".to_string()));
+        assert_eq!(
+            config.args[0].env,
+            Some(EnvSetting::Custom("INPUT_FILE".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_schema_v2_env_disabled() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "secret", "long": "secret", "type": "option", "env": false}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.args[0].env, Some(EnvSetting::Disabled));
+    }
+
+    #[test]
+    fn test_schema_v2_env_auto() {
+        // When env is not specified, it should be None (auto-env)
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "config", "long": "config", "type": "option"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.args[0].env, None);
+        // effective_env should return auto-generated name
+        assert_eq!(
+            config.args[0].effective_env("SHCLAP_", 2),
+            Some("SHCLAP_CONFIG".to_string())
+        );
     }
 
     #[test]
@@ -779,7 +909,7 @@ mod tests {
         assert!(!v1_arg.uses_v2_features());
 
         let v2_arg_env = ArgConfig {
-            env: Some("TEST".to_string()),
+            env: Some(EnvSetting::Custom("TEST".to_string())),
             ..v1_arg.clone()
         };
         assert!(v2_arg_env.uses_v2_features());

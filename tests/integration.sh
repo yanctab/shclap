@@ -411,6 +411,78 @@ else
 fi
 unset TEST_INPUT_VAR
 
+# Test: Auto-env (no explicit env field, uses PREFIX + ARG_NAME)
+run_test
+unset SHCLAP_CONFIG 2>/dev/null || true
+export SHCLAP_CONFIG="auto_env_value"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
+    {"name":"config","long":"config","type":"option"}
+]}' -- )"
+if [[ "${SHCLAP_CONFIG:-}" == "auto_env_value" ]]; then
+    pass "Auto-env reads from PREFIX + ARG_NAME (SHCLAP_CONFIG)"
+else
+    fail "Auto-env" "SHCLAP_CONFIG=auto_env_value" "SHCLAP_CONFIG=${SHCLAP_CONFIG:-unset}"
+fi
+unset SHCLAP_CONFIG
+
+# Test: Auto-env with custom prefix
+run_test
+unset MYAPP_DEBUG 2>/dev/null || true
+export MYAPP_DEBUG="true"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","prefix":"MYAPP_","args":[
+    {"name":"debug","long":"debug","type":"option"}
+]}' -- )"
+if [[ "${MYAPP_DEBUG:-}" == "true" ]]; then
+    pass "Auto-env with custom prefix reads from MYAPP_DEBUG"
+else
+    fail "Auto-env custom prefix" "MYAPP_DEBUG=true" "MYAPP_DEBUG=${MYAPP_DEBUG:-unset}"
+fi
+unset MYAPP_DEBUG
+
+# Test: Auto-env CLI arg takes precedence
+run_test
+unset SHCLAP_MODE 2>/dev/null || true
+export SHCLAP_MODE="from_env"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
+    {"name":"mode","long":"mode","type":"option"}
+]}' -- --mode from_cli)"
+if [[ "${SHCLAP_MODE:-}" == "from_cli" ]]; then
+    pass "Auto-env: CLI arg takes precedence over env var"
+else
+    fail "Auto-env CLI precedence" "SHCLAP_MODE=from_cli" "SHCLAP_MODE=${SHCLAP_MODE:-unset}"
+fi
+unset SHCLAP_MODE
+
+# Test: Opt-out with env: false (shclap should not read from env var)
+run_test
+unset SHCLAP_SECRET 2>/dev/null || true
+export SHCLAP_SECRET="should_not_be_read"
+OUTPUT_FILE=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
+    {"name":"secret","long":"secret","type":"option","env":false}
+]}' -- )
+# The output file should NOT contain SHCLAP_SECRET since env is disabled
+if ! grep -q "SHCLAP_SECRET" "$OUTPUT_FILE"; then
+    pass "Opt-out (env: false) does not read from env"
+else
+    fail "Opt-out env:false" "No SHCLAP_SECRET in output" "$(cat $OUTPUT_FILE)"
+fi
+unset SHCLAP_SECRET
+
+# Test: v1 schema does not enable auto-env
+run_test
+unset SHCLAP_LEGACY 2>/dev/null || true
+export SHCLAP_LEGACY="should_not_be_read"
+OUTPUT_FILE=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
+    {"name":"legacy","long":"legacy","type":"option"}
+]}' -- )
+# The output file should NOT contain SHCLAP_LEGACY since v1 has no auto-env
+if ! grep -q "SHCLAP_LEGACY" "$OUTPUT_FILE"; then
+    pass "v1 schema does not enable auto-env"
+else
+    fail "v1 no auto-env" "No SHCLAP_LEGACY in output" "$(cat $OUTPUT_FILE)"
+fi
+unset SHCLAP_LEGACY
+
 
 section "12. Schema Version 2 - Multiple Values"
 

@@ -255,8 +255,11 @@ Each task follows this workflow:
 - ~~We are calling cargo instead of calling make targets in the github actions lets try and call make targets instead when suited.~~
 - ~~The instructions in CLAUDE.md should also be to call make targets instead of calling cargo directly if possible~~
 
-### Environment variables
-- So the idea with the environments variables is that an user should be able to define args in json source shclap and then call its script using the flags but if the user has instead defined a environmanet lets say SHCLAP_TEST and there is flag named --test then the environment variable should be used if not --test flag is specified. Make sure that this works.
+### ~~Environment variables~~
+- ~~So the idea with the environments variables is that an user should be able to define args in json source shclap and then call its script using the flags but if the user has instead defined a environmanet lets say SHCLAP_TEST and there is flag named --test then the environment variable should be used if not --test flag is specified. Make sure that this works.~~
+- ~~Implemented auto-env for schema v2: args automatically read from PREFIX + ARG_NAME~~
+- ~~Opt-out with `env: false`, custom var with `env: "VAR_NAME"`~~
+- ~~v1 schema does not enable auto-env (backwards compatible)~~
 ---
 
 
