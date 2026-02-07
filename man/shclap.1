@@ -161,8 +161,10 @@ Help text for this argument. Optional.
 Set schema_version to 2 to enable these additional argument fields:
 .TP
 .B env
-Environment variable name to use as fallback value. If the argument is not
-provided on the command line, shclap checks this environment variable.
+Controls environment variable fallback. In schema v2, arguments automatically
+fall back to PREFIX + ARG_NAME (e.g., SHCLAP_CONFIG for --config). Use this
+field to customize: set to \fBfalse\fR to disable env fallback, or set to a
+string like "CUSTOM_VAR" to use a specific variable name.
 .TP
 .B multiple
 Boolean. Allow multiple occurrences of this argument. Output as bash array.
@@ -278,19 +280,23 @@ source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
 .RE
 .SS "Environment Variable Fallback (Schema V2)"
 .PP
+In schema v2, arguments automatically fall back to PREFIX + ARG_NAME:
+.PP
 .RS
 .nf
 #!/bin/bash
 CONFIG='{
   "schema_version": 2,
   "name": "deploy",
+  "prefix": "DEPLOY_",
   "args": [
-    {"name": "token", "long": "token", "type": "option", "env": "DEPLOY_TOKEN",
-     "required": true, "help": "API token"}
+    {"name": "token", "long": "token", "type": "option", "required": true},
+    {"name": "secret", "long": "secret", "type": "option", "env": false}
   ]
 }'
 source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
-# $SHCLAP_TOKEN comes from \-\-token or $DEPLOY_TOKEN
+# $DEPLOY_TOKEN comes from \-\-token or $DEPLOY_TOKEN env var (auto)
+# $DEPLOY_SECRET only comes from \-\-secret (env disabled)
 .fi
 .RE
 .SS "Multiple Values (Schema V2)"
