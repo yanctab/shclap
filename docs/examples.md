@@ -60,32 +60,62 @@ Usage:
 
 ## Environment Variable Fallback
 
-Using environment variables for sensitive data:
+In schema v2, arguments automatically fall back to `PREFIX + ARG_NAME` environment variables:
 
 ```bash
 #!/bin/bash
 CONFIG='{
   "schema_version": 2,
   "name": "api-client",
+  "prefix": "API_",
   "description": "Make API requests",
   "args": [
-    {"name": "api_key", "long": "api-key", "type": "option", "env": "API_KEY", "required": true},
+    {"name": "host", "long": "host", "type": "option", "default": "api.example.com"},
+    {"name": "key", "long": "key", "type": "option", "required": true},
     {"name": "endpoint", "type": "positional", "required": true}
   ]
 }'
 source $(shclap parse --config "$CONFIG" -- "$@")
 
-curl -H "Authorization: Bearer $SHCLAP_API_KEY" "https://api.example.com/$SHCLAP_ENDPOINT"
+curl -H "Authorization: Bearer $API_KEY" "https://$API_HOST/$API_ENDPOINT"
 ```
 
 Usage:
 ```bash
-# Using environment variable
+# Auto-env: reads from $API_HOST and $API_KEY
 export API_KEY="secret123"
 ./api-client.sh /users
 
-# Using command-line argument
-./api-client.sh --api-key=secret123 /users
+# CLI args take precedence
+./api-client.sh --host=staging.example.com --key=secret123 /users
+```
+
+### Disabling Auto-Env
+
+Use `"env": false` to prevent reading from environment (e.g., for security):
+
+```bash
+CONFIG='{
+  "schema_version": 2,
+  "args": [
+    {"name": "password", "type": "option", "env": false}
+  ]
+}'
+# $SHCLAP_PASSWORD env var will NOT be read, must use --password
+```
+
+### Custom Env Var Name
+
+Use `"env": "VAR_NAME"` for legacy or non-standard var names:
+
+```bash
+CONFIG='{
+  "schema_version": 2,
+  "args": [
+    {"name": "api_key", "type": "option", "env": "LEGACY_API_TOKEN"}
+  ]
+}'
+# Reads from $LEGACY_API_TOKEN instead of $SHCLAP_API_KEY
 ```
 
 ## Handling Multiple Values

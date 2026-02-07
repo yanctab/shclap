@@ -71,18 +71,38 @@ Enable version 2 by adding `"schema_version": 2` to your configuration:
 
 ### Environment Variable Fallback
 
-Arguments can fall back to environment variables when not provided on the command line. Use the `env` field to specify which environment variable to check:
+In schema v2, arguments automatically fall back to environment variables when not provided on the command line. The env var name is `PREFIX + ARG_NAME` (uppercased):
 
 ```bash
 CONFIG='{
   "schema_version": 2,
   "name": "myapp",
+  "prefix": "MYAPP_",
   "args": [
-    {"name": "api_key", "long": "api-key", "type": "option", "env": "MYAPP_API_KEY"}
+    {"name": "config", "long": "config", "type": "option"}
   ]
 }'
+export MYAPP_CONFIG="/etc/myapp.conf"
 source $(shclap parse --config "$CONFIG" -- "$@")
-# $SHCLAP_API_KEY comes from --api-key or $MYAPP_API_KEY
+# $MYAPP_CONFIG comes from --config or $MYAPP_CONFIG env var
+```
+
+**Controlling env fallback:**
+
+| `env` field | Behavior |
+|-------------|----------|
+| Not specified | Auto-env: reads from `PREFIX + ARG_NAME` |
+| `false` | Disabled: never reads from environment |
+| `"VAR_NAME"` | Custom: reads from specified var |
+
+```json
+{
+  "args": [
+    {"name": "config", "type": "option"},                    // auto: $MYAPP_CONFIG
+    {"name": "secret", "type": "option", "env": false},      // disabled
+    {"name": "key", "type": "option", "env": "LEGACY_KEY"}   // custom: $LEGACY_KEY
+  ]
+}
 ```
 
 **Priority order:**

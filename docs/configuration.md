@@ -29,7 +29,7 @@ Each argument in the `args` array can have the following fields:
 | `required` | bool | No | Whether argument is required (default: false) |
 | `default` | string | No | Default value if not provided |
 | `help` | string | No | Help text shown in usage |
-| `env` | string | No | Environment variable fallback (v2 only) |
+| `env` | string/false | No | Env fallback: omit for auto (`PREFIX+NAME`), `false` to disable, or custom var name (v2 only) |
 | `multiple` | bool | No | Accept multiple values as array (v2 only) |
 | `num_args` | string | No | Number of values per occurrence (v2 only) |
 | `delimiter` | string | No | Split single value by delimiter (v2 only) |
