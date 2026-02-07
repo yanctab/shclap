@@ -5,23 +5,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build Commands
 
 ```bash
-# Development
-cargo build                    # Debug build
-cargo fmt                      # Format code
-cargo clippy -- -D warnings    # Lint (fails on warnings)
-cargo test                     # Unit tests
-
-# Full check (format + lint + all tests)
-make check
-
-# Integration tests (requires build first)
-./tests/integration.sh
-
-# Release build (static binary with musl)
-make release                   # or: cargo build --release --target x86_64-unknown-linux-musl
-
-# Debian package
-make deb
+make build              # Debug build
+make release            # Static release binary (musl)
+make fmt                # Format code
+make lint               # Run clippy (fails on warnings)
+make unit-test          # Run Rust unit tests
+make integration-test   # Run shell integration tests
+make test               # Run all tests (unit + integration)
+make check              # Full check: fmt + lint + test
+make deb                # Build Debian package
+make clean              # Clean build artifacts
 ```
 
 ## Running a Single Test
@@ -60,7 +53,7 @@ Parsed values become environment variables with configurable prefix (default: `S
 ## CI
 
 GitHub Actions runs on PRs to main:
-1. `cargo fmt --check`
-2. `cargo clippy -- -D warnings`
-3. `cargo test`
-4. `./tests/integration.sh`
+1. `make fmt-check`
+2. `make lint`
+3. `make unit-test`
+4. `make release` + `make integration-test`

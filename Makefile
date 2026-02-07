@@ -6,7 +6,7 @@ INSTALL_PATH := /usr/local/bin
 MUSL_TARGET := x86_64-unknown-linux-musl
 RUST_VERSION := 1.81.0
 
-.PHONY: help setup-build-env build release test unit-test integration-test fmt lint check install uninstall clean deb install-deb uninstall-deb
+.PHONY: help setup-build-env build release test unit-test integration-test fmt fmt-check lint check install uninstall clean deb install-deb uninstall-deb
 
 .DEFAULT_GOAL := help
 
@@ -50,6 +50,10 @@ integration-test: build
 ## fmt - Format code with rustfmt
 fmt:
 	$(CARGO) fmt
+
+## fmt-check - Check formatting without modifying files
+fmt-check:
+	$(CARGO) fmt --check
 
 ## lint - Run clippy linter
 lint:

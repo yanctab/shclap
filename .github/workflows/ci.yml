@@ -20,7 +20,7 @@ jobs:
         run: rustup show
 
       - name: Check formatting
-        run: cargo fmt --check
+        run: make fmt-check
 
   clippy:
     name: Clippy
@@ -43,7 +43,7 @@ jobs:
             ${{ runner.os }}-cargo-clippy-
 
       - name: Run clippy
-        run: cargo clippy -- -D warnings
+        run: make lint
 
   test:
     name: Test
@@ -69,10 +69,10 @@ jobs:
             ${{ runner.os }}-cargo-test-
 
       - name: Run unit tests
-        run: cargo test
+        run: make unit-test
 
       - name: Build release for integration tests
-        run: cargo build --release --target x86_64-unknown-linux-musl
+        run: make release
 
       - name: Run integration tests
-        run: ./tests/integration.sh
+        run: make integration-test
