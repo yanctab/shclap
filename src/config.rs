@@ -102,7 +102,7 @@ impl<'de> Deserialize<'de> for EnvSetting {
 
         struct EnvSettingVisitor;
 
-        impl<'de> Visitor<'de> for EnvSettingVisitor {
+        impl Visitor<'_> for EnvSettingVisitor {
             type Value = EnvSetting;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
