@@ -1,6 +1,6 @@
 [package]
 name = "shclap"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Clap-style argument parsing for shell scripts"
 authors = ["yanctab"]
