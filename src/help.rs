@@ -527,4 +527,44 @@ mod tests {
             help
         );
     }
+
+    #[test]
+    fn test_generate_help_with_value_type_double() {
+        // Create config with double value_type
+        let double_config = Config {
+            schema_version: 2,
+            name: Some("test".to_string()),
+            description: None,
+            version: None,
+            prefix: None,
+            args: vec![ArgConfig {
+                name: "ratio".to_string(),
+                short: Some('r'),
+                long: Some("ratio".to_string()),
+                arg_type: ArgType::Option,
+                required: false,
+                default: None,
+                help: Some("Calculation ratio".to_string()),
+                env: None,
+                multiple: false,
+                num_args: None,
+                delimiter: None,
+                choices: None,
+                value_type: ValueType::Double,
+            }],
+            subcommands: vec![],
+        };
+
+        let double_help = generate_help(&double_config, get_name(&double_config));
+
+        // Help should be non-empty
+        assert!(!double_help.is_empty(), "Help should not be empty");
+
+        // Help should not contain true/false (no confusion with bool)
+        assert!(
+            !(double_help.contains("true") && double_help.contains("false")),
+            "Help should not show true/false for double value_type: {}",
+            double_help
+        );
+    }
 }
