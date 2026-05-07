@@ -356,6 +356,50 @@ Usage:
 ./deploy.sh -e production -V 1.2.3 -f
 ```
 
+## Numeric Option with Double Precision Validation
+
+Processing numeric values with floating-point precision:
+
+```bash
+#!/bin/bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "analyze",
+  "description": "Analyze data with threshold filtering",
+  "args": [
+    {"name": "threshold", "short": "t", "long": "threshold", "type": "option", "value_type": "double", "required": true, "help": "Confidence threshold (0.0-1.0)"},
+    {"name": "input", "type": "positional", "required": true, "help": "Input data file"}
+  ]
+}'
+source $(shclap parse --config "$CONFIG" -- "$@")
+
+echo "Analyzing $SHCLAP_INPUT with threshold: $SHCLAP_THRESHOLD"
+```
+
+Usage with a positive float:
+```bash
+./analyze.sh -t 0.95 data.csv
+# $SHCLAP_THRESHOLD = "0.95"
+```
+
+Usage with a negative float:
+```bash
+./analyze.sh --threshold=-0.5 data.csv
+# $SHCLAP_THRESHOLD = "-0.5"
+```
+
+Usage with scientific notation:
+```bash
+./analyze.sh -t 1e10 data.csv
+# $SHCLAP_THRESHOLD = "10000000000"
+```
+
+Error from non-numeric value:
+```bash
+$ ./analyze.sh -t abc data.csv
+shclap: invalid value 'abc' for '--threshold': invalid float literal
+```
+
 ## See Also
 
 - [Configuration Reference](configuration.md) - Full JSON schema reference
