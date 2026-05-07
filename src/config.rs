@@ -182,7 +182,7 @@ pub struct ArgConfig {
     #[serde(default)]
     pub choices: Option<Vec<String>>,
     /// Value type for validation (schema_version >= 2)
-    /// Options: "string" (default), "int", "bool"
+    /// Options: "string" (default), "int", "bool", "double"
     #[serde(default)]
     pub value_type: ValueType,
 }
