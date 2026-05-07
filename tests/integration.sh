@@ -775,6 +775,49 @@ else
 fi
 
 
+section "18. Value Type Validation (double)"
+
+# Test: value_type: double with valid float
+run_test
+unset SHCLAP_RATIO 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' -- --ratio 3.14)"
+if [[ "${SHCLAP_RATIO:-}" == "3.14" ]]; then
+    pass "value_type: double accepts valid float (3.14)"
+else
+    fail "double valid float" "SHCLAP_RATIO=3.14" "SHCLAP_RATIO=${SHCLAP_RATIO:-unset}"
+fi
+
+# Test: value_type: double with integer-shaped input
+run_test
+unset SHCLAP_RATIO 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' -- --ratio 42)"
+if [[ "${SHCLAP_RATIO:-}" == "42" ]]; then
+    pass "value_type: double accepts integer-shaped input (42)"
+else
+    fail "double integer-shaped" "SHCLAP_RATIO=42" "SHCLAP_RATIO=${SHCLAP_RATIO:-unset}"
+fi
+
+# Test: value_type: double with negative float
+run_test
+unset SHCLAP_RATIO 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' -- --ratio -2.7)"
+if [[ "${SHCLAP_RATIO:-}" == "-2.7" ]]; then
+    pass "value_type: double accepts negative float (-2.7)"
+else
+    fail "double negative float" "SHCLAP_RATIO=-2.7" "SHCLAP_RATIO=${SHCLAP_RATIO:-unset}"
+fi
+
+# Test: value_type: double with non-numeric input produces error
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' -- --ratio abc)
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "invalid"; then
+    pass "value_type: double rejects non-numeric (abc) with error"
+else
+    fail "double invalid" "Should produce error for 'abc'" "$ERROR_OUTPUT"
+fi
+
+
 #
 # Summary
 #
