@@ -243,6 +243,9 @@ fn build_arg(
             ValueType::Bool => {
                 arg = arg.value_parser(clap::builder::PossibleValuesParser::new(["true", "false"]));
             }
+            ValueType::Double => {
+                arg = arg.value_parser(clap::value_parser!(f64));
+            }
         }
     }
 

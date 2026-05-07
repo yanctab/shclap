@@ -77,6 +77,8 @@ pub enum ValueType {
     Int,
     /// Boolean (strict "true" or "false" only)
     Bool,
+    /// 64-bit floating-point number
+    Double,
 }
 
 /// Environment variable fallback setting (schema_version >= 2).
@@ -1221,6 +1223,19 @@ mod tests {
             result,
             Err(ConfigError::ValueTypeOnFlag(name)) if name == "verbose"
         ));
+    }
+
+    #[test]
+    fn test_from_json_double_value_type_deserialises() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "ratio", "long": "ratio", "type": "option", "value_type": "double"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.args[0].value_type, ValueType::Double);
     }
 
     #[test]
