@@ -1265,6 +1265,23 @@ mod tests {
     }
 
     #[test]
+    fn test_error_value_type_double_on_flag() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "verbose", "short": "v", "type": "flag", "value_type": "double"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(
+            result,
+            Err(ConfigError::ValueTypeOnFlag(name)) if name == "verbose"
+        ));
+    }
+
+    #[test]
     fn test_default_value_type_is_string() {
         let json = r#"{
             "schema_version": 2,
