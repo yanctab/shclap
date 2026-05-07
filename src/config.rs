@@ -77,6 +77,8 @@ pub enum ValueType {
     Int,
     /// Boolean (strict "true" or "false" only)
     Bool,
+    /// 64-bit floating-point number
+    Double,
 }
 
 /// Environment variable fallback setting (schema_version >= 2).
@@ -1221,6 +1223,98 @@ mod tests {
             result,
             Err(ConfigError::ValueTypeOnFlag(name)) if name == "verbose"
         ));
+    }
+
+    #[test]
+    fn test_from_json_double_value_type_deserialises() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "ratio", "long": "ratio", "type": "option", "value_type": "double"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.args[0].value_type, ValueType::Double);
+    }
+
+    #[test]
+    fn test_validate_accepts_double_on_option() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "ratio", "long": "ratio", "type": "option", "value_type": "double"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_accepts_double_on_positional() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "threshold", "type": "positional", "value_type": "double"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_error_value_type_double_on_flag() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "verbose", "short": "v", "type": "flag", "value_type": "double"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(
+            result,
+            Err(ConfigError::ValueTypeOnFlag(name)) if name == "verbose"
+        ));
+    }
+
+    #[test]
+    fn test_error_value_type_double_in_v1_config() {
+        let json = r#"{
+            "schema_version": 1,
+            "name": "test",
+            "args": [
+                {"name": "ratio", "long": "ratio", "type": "option", "value_type": "double"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::FieldRequiresV2(field, _)) if field == "value_type")
+        );
+    }
+
+    #[test]
+    fn test_uses_v2_features_with_double_value_type() {
+        let arg = ArgConfig {
+            name: "ratio".to_string(),
+            short: None,
+            long: Some("ratio".to_string()),
+            arg_type: ArgType::Option,
+            required: false,
+            default: None,
+            help: None,
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
+            choices: None,
+            value_type: ValueType::Double,
+        };
+        assert!(arg.uses_v2_features());
     }
 
     #[test]
