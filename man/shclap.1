@@ -208,9 +208,9 @@ Example: ["json", "yaml", "toml"]
 .TP
 .B value_type
 Value type validation. One of: "string" (default, no validation), "int"
-(signed 64-bit integer), or "bool" (strict true/false only). Cannot be used
-with flags. If both choices and value_type are specified, choices takes
-precedence.
+(signed 64-bit integer), "bool" (strict true/false only), or "double"
+(IEEE 754 double-precision float). Cannot be used with flags. If both
+choices and value_type are specified, choices takes precedence.
 .SS "Subcommands (Schema Version 2)"
 .TP
 .B subcommands
@@ -292,6 +292,9 @@ shclap: invalid digit found in string
 .TP
 .B Invalid type (bool)
 shclap: invalid value 'yes': valid values: true, false
+.TP
+.B Invalid type (double)
+shclap: invalid value 'abc' for '--value': ...
 .TP
 .B Invalid JSON config
 shclap: failed to parse JSON config: ...

@@ -818,6 +818,33 @@ else
 fi
 
 
+section "19. Man Page Documentation"
+
+# Test: Man page contains "double" in value_type description
+run_test
+VALUE_TYPE_SECTION=$(grep -A 5 "^.B value_type" man/shclap.1 | head -6)
+if echo "$VALUE_TYPE_SECTION" | grep -q '"double"' && echo "$VALUE_TYPE_SECTION" | grep -q "IEEE 754 double-precision float"; then
+    pass "Man page includes double in value_type description"
+else
+    fail "Man page value_type description" "Should include 'double' and 'IEEE 754 double-precision float'" "$VALUE_TYPE_SECTION"
+fi
+
+# Test: Man page contains "Invalid type (double)" error entry
+run_test
+if grep -q "Invalid type (double)" man/shclap.1; then
+    # Verify the error is placed after Invalid type (bool)
+    BOOL_LINE=$(grep -n "Invalid type (bool)" man/shclap.1 | cut -d: -f1)
+    DOUBLE_LINE=$(grep -n "Invalid type (double)" man/shclap.1 | cut -d: -f1)
+    if [[ -n "$DOUBLE_LINE" && -n "$BOOL_LINE" && $DOUBLE_LINE -gt $BOOL_LINE ]]; then
+        pass "Man page includes Invalid type (double) error entry after Invalid type (bool)"
+    else
+        fail "Man page error entry order" "Invalid type (double) should come after Invalid type (bool)" "BOOL_LINE=$BOOL_LINE, DOUBLE_LINE=$DOUBLE_LINE"
+    fi
+else
+    fail "Man page error entry" "Should include 'Invalid type (double)'" "$(grep -i 'invalid type' man/shclap.1)"
+fi
+
+
 #
 # Summary
 #
