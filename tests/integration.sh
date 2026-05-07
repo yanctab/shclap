@@ -712,6 +712,69 @@ else
 fi
 
 
+section "17. Value Type Validation (int and bool)"
+
+# Test: value_type: int with valid integer
+run_test
+unset SHCLAP_COUNT 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"count","long":"count","type":"option","value_type":"int"}]}' -- --count 42)"
+if [[ "${SHCLAP_COUNT:-}" == "42" ]]; then
+    pass "value_type: int accepts valid integer (42)"
+else
+    fail "int valid" "SHCLAP_COUNT=42" "SHCLAP_COUNT=${SHCLAP_COUNT:-unset}"
+fi
+
+# Test: value_type: int with negative integer
+run_test
+unset SHCLAP_COUNT 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"count","long":"count","type":"option","value_type":"int"}]}' -- --count -5)"
+if [[ "${SHCLAP_COUNT:-}" == "-5" ]]; then
+    pass "value_type: int accepts negative integer (-5)"
+else
+    fail "int negative" "SHCLAP_COUNT=-5" "SHCLAP_COUNT=${SHCLAP_COUNT:-unset}"
+fi
+
+# Test: value_type: int with non-integer value produces error
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"count","long":"count","type":"option","value_type":"int"}]}' -- --count abc)
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "invalid"; then
+    pass "value_type: int rejects non-integer (abc) with error"
+else
+    fail "int invalid" "Should produce error for 'abc'" "$ERROR_OUTPUT"
+fi
+
+# Test: value_type: bool with "true"
+run_test
+unset SHCLAP_ENABLED 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"enabled","long":"enabled","type":"option","value_type":"bool"}]}' -- --enabled true)"
+if [[ "${SHCLAP_ENABLED:-}" == "true" ]]; then
+    pass "value_type: bool accepts \"true\""
+else
+    fail "bool true" "SHCLAP_ENABLED=true" "SHCLAP_ENABLED=${SHCLAP_ENABLED:-unset}"
+fi
+
+# Test: value_type: bool with "false"
+run_test
+unset SHCLAP_ENABLED 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"enabled","long":"enabled","type":"option","value_type":"bool"}]}' -- --enabled false)"
+if [[ "${SHCLAP_ENABLED:-}" == "false" ]]; then
+    pass "value_type: bool accepts \"false\""
+else
+    fail "bool false" "SHCLAP_ENABLED=false" "SHCLAP_ENABLED=${SHCLAP_ENABLED:-unset}"
+fi
+
+# Test: value_type: bool with "yes" produces error
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"enabled","long":"enabled","type":"option","value_type":"bool"}]}' -- --enabled yes)
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "invalid"; then
+    pass "value_type: bool rejects \"yes\" with error"
+else
+    fail "bool invalid" "Should produce error for 'yes'" "$ERROR_OUTPUT"
+fi
+
+
 #
 # Summary
 #
