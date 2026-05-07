@@ -1298,6 +1298,26 @@ mod tests {
     }
 
     #[test]
+    fn test_uses_v2_features_with_double_value_type() {
+        let arg = ArgConfig {
+            name: "ratio".to_string(),
+            short: None,
+            long: Some("ratio".to_string()),
+            arg_type: ArgType::Option,
+            required: false,
+            default: None,
+            help: None,
+            env: None,
+            multiple: false,
+            num_args: None,
+            delimiter: None,
+            choices: None,
+            value_type: ValueType::Double,
+        };
+        assert!(arg.uses_v2_features());
+    }
+
+    #[test]
     fn test_default_value_type_is_string() {
         let json = r#"{
             "schema_version": 2,
