@@ -307,12 +307,20 @@ fn extract_values(args: &[ArgConfig], matches: &clap::ArgMatches) -> HashMap<Str
                 // Check if we need to handle i64 values (when value_type is Int and no choices)
                 let is_int_type =
                     arg_config.value_type == ValueType::Int && arg_config.choices.is_none();
+                // Check if we need to handle f64 values (when value_type is Double and no choices)
+                let is_double_type =
+                    arg_config.value_type == ValueType::Double && arg_config.choices.is_none();
 
                 if arg_config.multiple {
                     // Multiple values: get all
                     let values: Vec<String> = if is_int_type {
                         matches
                             .get_many::<i64>(name)
+                            .map(|v| v.map(|n| n.to_string()).collect())
+                            .unwrap_or_default()
+                    } else if is_double_type {
+                        matches
+                            .get_many::<f64>(name)
                             .map(|v| v.map(|n| n.to_string()).collect())
                             .unwrap_or_default()
                     } else {
@@ -331,6 +339,8 @@ fn extract_values(args: &[ArgConfig], matches: &clap::ArgMatches) -> HashMap<Str
                     // Single value
                     let value_opt: Option<String> = if is_int_type {
                         matches.get_one::<i64>(name).map(|n| n.to_string())
+                    } else if is_double_type {
+                        matches.get_one::<f64>(name).map(|n| n.to_string())
                     } else {
                         matches.get_one::<String>(name).cloned()
                     };
@@ -1426,5 +1436,176 @@ mod tests {
             }
             other => panic!("Expected Error, got {:?}", other),
         }
+    }
+
+    // Double value type tests
+
+    #[test]
+    fn test_value_type_double_simple() {
+        // Criterion: parse "3.14" -> "3.14"
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"ratio","long":"ratio","type":"option","value_type":"double"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--ratio", "3.14"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("ratio"), Some(&"3.14".to_string()));
+    }
+
+    #[test]
+    fn test_value_type_double_negative() {
+        // Criterion: parse "-2.7" -> "-2.7"
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"offset","long":"offset","type":"option","value_type":"double"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--offset", "-2.7"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("offset"), Some(&"-2.7".to_string()));
+    }
+
+    #[test]
+    fn test_value_type_double_zero() {
+        // Criterion: parse "0" -> "0"
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"value","long":"value","type":"option","value_type":"double"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--value", "0"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("value"), Some(&"0".to_string()));
+    }
+
+    #[test]
+    fn test_value_type_double_scientific() {
+        // Criterion: parse "1e10" -> "10000000000" (Rust f64 Display formatting)
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"exponent","long":"exponent","type":"option","value_type":"double"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--exponent", "1e10"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("exponent"), Some(&"10000000000".to_string()));
+    }
+
+    #[test]
+    fn test_value_type_double_invalid() {
+        // Criterion: parse "abc" -> Error
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"value","long":"value","type":"option","value_type":"double"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = parse_args(&config, &to_args(&["--value", "abc"]), get_name(&config));
+        match result {
+            ParseOutcome::Error(msg) => {
+                assert!(
+                    msg.contains("abc") || msg.contains("invalid"),
+                    "Error should mention invalid value: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_value_type_double_multiple() {
+        // Criterion: multiple: true with "1.1" "2.2" -> ["1.1", "2.2"]
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"values","long":"value","type":"option","value_type":"double","multiple":true}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success_full(parse_args(
+            &config,
+            &to_args(&["--value", "1.1", "--value", "2.2"]),
+            get_name(&config),
+        ));
+        match result.values.get("values") {
+            Some(ParsedValue::Multiple(v)) => {
+                assert_eq!(v, &vec!["1.1".to_string(), "2.2".to_string()]);
+            }
+            other => panic!("Expected Multiple, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_value_type_double_positional() {
+        // Criterion: positional with double type
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"distance","type":"positional","value_type":"double"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(&config, &to_args(&["3.14"]), get_name(&config)));
+        assert_eq!(result.get("distance"), Some(&"3.14".to_string()));
+    }
+
+    #[test]
+    fn test_value_type_double_choices_takes_precedence() {
+        // Criterion: When choices and value_type: double are both set, choices takes precedence
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"level","long":"level","type":"option","value_type":"double","choices":["1.0","2.5","3.0"]}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        // "1.0" is accepted because it's in choices
+        let result = unwrap_success(parse_args(
+            &config,
+            &to_args(&["--level", "1.0"]),
+            get_name(&config),
+        ));
+        assert_eq!(result.get("level"), Some(&"1.0".to_string()));
+
+        // "1.5" is rejected because it's not in choices (even though it's a valid double)
+        let result2 = parse_args(&config, &to_args(&["--level", "1.5"]), get_name(&config));
+        match result2 {
+            ParseOutcome::Error(msg) => {
+                assert!(
+                    msg.contains("1.5") || msg.contains("invalid"),
+                    "Error should mention invalid value: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_value_type_double_with_default() {
+        // Criterion: parse_args with default: "1.5" and no CLI input returns "1.5"
+        let config = parse_config(
+            r#"{"schema_version":2,"name":"test","args":[
+                {"name":"threshold","long":"threshold","type":"option","value_type":"double","default":"1.5"}
+            ]}"#,
+        );
+        config.validate().unwrap();
+        let result = unwrap_success(parse_args(&config, &to_args(&[]), get_name(&config)));
+        assert_eq!(result.get("threshold"), Some(&"1.5".to_string()));
     }
 }
