@@ -1282,6 +1282,22 @@ mod tests {
     }
 
     #[test]
+    fn test_error_value_type_double_in_v1_config() {
+        let json = r#"{
+            "schema_version": 1,
+            "name": "test",
+            "args": [
+                {"name": "ratio", "long": "ratio", "type": "option", "value_type": "double"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::FieldRequiresV2(field, _)) if field == "value_type")
+        );
+    }
+
+    #[test]
     fn test_default_value_type_is_string() {
         let json = r#"{
             "schema_version": 2,
