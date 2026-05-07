@@ -18,7 +18,7 @@ See [Configuration Reference](configuration.md) for the complete field reference
 | Simple scripts with basic flags and options | v1 (default) |
 | Need environment variable fallback | v2 |
 | Need multiple values (arrays) | v2 |
-| Need value type validation (int, bool) | v2 |
+| Need value type validation (int, bool, double) | v2 |
 | Need subcommands like `git init`, `git commit` | v2 |
 
 ## Schema Version 1 (Default)
@@ -203,6 +203,7 @@ Validate that argument values match expected types using the `value_type` field.
 | `string` | Any string value (default) | Any value | N/A |
 | `int` | Signed 64-bit integer | `42`, `-10`, `0` | `abc`, `3.14` |
 | `bool` | Strict boolean | `true`, `false` | `yes`, `no`, `1`, `0` |
+| `double` | IEEE 754 64-bit float | `3.14`, `-2.7`, `0`, `1e10` | `abc`, `3.x` |
 
 ```bash
 $ myapp --count 42        # OK
