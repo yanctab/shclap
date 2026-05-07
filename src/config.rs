@@ -1239,6 +1239,32 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_accepts_double_on_option() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "ratio", "long": "ratio", "type": "option", "value_type": "double"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_accepts_double_on_positional() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "threshold", "type": "positional", "value_type": "double"}
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
     fn test_default_value_type_is_string() {
         let json = r#"{
             "schema_version": 2,
