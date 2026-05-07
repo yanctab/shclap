@@ -54,6 +54,7 @@ shclap supports two schema versions:
 - Environment variable fallback for options
 - Multiple values as bash arrays
 - Subcommands
+- Value type validation (`"string"`, `"int"`, `"bool"`, `"double"`)
 
 ### Environment Variable Output
 

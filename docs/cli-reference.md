@@ -204,6 +204,7 @@ When parsing fails, shclap outputs an error message to stderr (via the sourced t
 | Invalid choice | `shclap: invalid value 'xml' for '--format': valid values: json, yaml, toml` |
 | Invalid type (int) | `shclap: invalid digit found in string` |
 | Invalid type (bool) | `shclap: invalid value 'yes': valid values: true, false` |
+| Invalid type (double) | `shclap: invalid value 'abc' for '--value': invalid float literal` |
 | Invalid JSON config | `shclap: failed to parse JSON config: ...` |
 | Duplicate argument name | `shclap: duplicate argument name: verbose` |
 | Unsupported schema version | `shclap: unsupported schema version 99 (supported: 1-2)` |

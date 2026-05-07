@@ -34,7 +34,7 @@ Each argument in the `args` array can have the following fields:
 | `num_args` | string | No | Number of values per occurrence (v2 only) |
 | `delimiter` | string | No | Split single value by delimiter (v2 only) |
 | `choices` | array | No | Allowed values for this argument (v2 only) |
-| `value_type` | string | No | Value type validation: "string" (default), "int", "bool" (v2 only) |
+| `value_type` | string | No | Value type validation: "string" (default), "int", "bool", "double" (v2 only) |
 
 ### Long Option Fallback
 
@@ -215,6 +215,14 @@ Identified by position, not by flags. Order matters.
       "value_type": "int",
       "default": "10",
       "help": "Number of items to process"
+    },
+    {
+      "name": "threshold",
+      "long": "threshold",
+      "type": "option",
+      "value_type": "double",
+      "default": "0.5",
+      "help": "Processing threshold (0.0 to 1.0)"
     },
     {
       "name": "config",
