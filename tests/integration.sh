@@ -817,6 +817,36 @@ else
     fail "double invalid" "Should produce error for 'abc'" "$ERROR_OUTPUT"
 fi
 
+# Test: value_type: double with zero
+run_test
+unset SHCLAP_VALUE 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"value","long":"value","type":"option","value_type":"double"}]}' -- --value 0)"
+if [[ "${SHCLAP_VALUE:-}" == "0" ]]; then
+    pass "value_type: double accepts zero (0)"
+else
+    fail "double zero" "SHCLAP_VALUE=0" "SHCLAP_VALUE=${SHCLAP_VALUE:-unset}"
+fi
+
+# Test: value_type: double with scientific notation
+run_test
+unset SHCLAP_VALUE 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"value","long":"value","type":"option","value_type":"double"}]}' -- --value 1e10)"
+if [[ "${SHCLAP_VALUE:-}" == "10000000000" ]]; then
+    pass "value_type: double accepts scientific notation (1e10) and produces 10000000000"
+else
+    fail "double scientific notation" "SHCLAP_VALUE=10000000000" "SHCLAP_VALUE=${SHCLAP_VALUE:-unset}"
+fi
+
+# Test: double-typed positional argument with value 3.14
+run_test
+unset SHCLAP_THRESHOLD 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"threshold","type":"positional","value_type":"double"}]}' -- 3.14)"
+if [[ "${SHCLAP_THRESHOLD:-}" == "3.14" ]]; then
+    pass "value_type: double accepts double-typed positional argument (3.14)"
+else
+    fail "double positional" "SHCLAP_THRESHOLD=3.14" "SHCLAP_THRESHOLD=${SHCLAP_THRESHOLD:-unset}"
+fi
+
 
 section "19. Man Page Documentation"
 
