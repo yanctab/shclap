@@ -260,6 +260,12 @@ impl Config {
             if !self.subcommands.is_empty() {
                 return Err(ConfigError::SubcommandsRequireV2);
             }
+            if self.container.is_some() {
+                return Err(ConfigError::FieldRequiresV2(
+                    "container".to_string(),
+                    String::new(),
+                ));
+            }
             for arg in &self.args {
                 Self::validate_no_v2_fields(arg)?;
             }
@@ -1350,6 +1356,24 @@ mod tests {
         assert_eq!(container.image, "ubuntu:22.04");
         assert_eq!(container.args, vec!["--rm", "-it"]);
         config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_container_in_v1_schema_returns_field_requires_v2() {
+        let json = r#"{
+            "schema_version": 1,
+            "name": "test",
+            "container": {
+                "runtime": "docker",
+                "image": "ubuntu:22.04",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::FieldRequiresV2(field, _)) if field == "container")
+        );
     }
 
     #[test]
