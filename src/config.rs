@@ -298,6 +298,9 @@ impl Config {
                     container.runtime.clone(),
                 ));
             }
+            if container.image.is_empty() {
+                return Err(ConfigError::ContainerImageEmpty);
+            }
         }
 
         // Validate subcommands
@@ -1392,6 +1395,22 @@ mod tests {
         assert!(
             matches!(result, Err(ConfigError::UnknownContainerRuntime(rt)) if rt == "singularity")
         );
+    }
+
+    #[test]
+    fn test_container_empty_image_returns_error() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "docker",
+                "image": "",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::ContainerImageEmpty)));
     }
 
     #[test]
