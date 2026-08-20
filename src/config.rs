@@ -218,6 +218,8 @@ pub struct SubcommandConfig {
     /// Arguments for this subcommand
     #[serde(default)]
     pub args: Vec<ArgConfig>,
+    /// Container config is not permitted inside subcommands
+    pub container: Option<ContainerConfig>,
 }
 
 fn default_schema_version() -> u32 {
@@ -309,6 +311,10 @@ impl Config {
             for subcmd in &self.subcommands {
                 if !subcmd_names.insert(&subcmd.name) {
                     return Err(ConfigError::DuplicateSubcommandName(subcmd.name.clone()));
+                }
+
+                if subcmd.container.is_some() {
+                    return Err(ConfigError::ContainerInSubcommand);
                 }
 
                 let mut subcmd_arg_names = HashSet::new();
@@ -1395,6 +1401,27 @@ mod tests {
         assert!(
             matches!(result, Err(ConfigError::UnknownContainerRuntime(rt)) if rt == "singularity")
         );
+    }
+
+    #[test]
+    fn test_container_in_subcommand_returns_error() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "subcommands": [
+                {
+                    "name": "run",
+                    "container": {
+                        "runtime": "docker",
+                        "image": "ubuntu:22.04",
+                        "args": []
+                    }
+                }
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::ContainerInSubcommand)));
     }
 
     #[test]
