@@ -51,6 +51,15 @@ pub enum ConfigError {
 
     #[error("'value_type' cannot be used with flag type on argument '{0}'")]
     ValueTypeOnFlag(String),
+
+    #[error("unknown container runtime '{0}': must be \"docker\" or \"podman\"")]
+    UnknownContainerRuntime(String),
+
+    #[error("container image must not be empty")]
+    ContainerImageEmpty,
+
+    #[error("'container' cannot be used inside a subcommand")]
+    ContainerInSubcommand,
 }
 
 /// The type of argument.
@@ -280,6 +289,15 @@ impl Config {
             }
 
             Self::validate_arg(arg, self.schema_version)?;
+        }
+
+        // Validate container (schema_version >= 2 already checked above)
+        if let Some(ref container) = self.container {
+            if container.runtime != "docker" && container.runtime != "podman" {
+                return Err(ConfigError::UnknownContainerRuntime(
+                    container.runtime.clone(),
+                ));
+            }
         }
 
         // Validate subcommands
@@ -1356,6 +1374,24 @@ mod tests {
         assert_eq!(container.image, "ubuntu:22.04");
         assert_eq!(container.args, vec!["--rm", "-it"]);
         config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_container_unknown_runtime_returns_error() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "singularity",
+                "image": "ubuntu:22.04",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::UnknownContainerRuntime(rt)) if rt == "singularity")
+        );
     }
 
     #[test]
