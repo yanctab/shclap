@@ -244,6 +244,7 @@ mod tests {
             prefix: None,
             args,
             subcommands: vec![],
+            container: None,
         }
     }
 
@@ -479,6 +480,7 @@ mod tests {
                 value_type: ValueType::String,
             }],
             subcommands: vec![],
+            container: None,
         };
 
         let help = generate_help(&config, get_name(&config));
@@ -516,6 +518,7 @@ mod tests {
                 value_type: ValueType::Bool,
             }],
             subcommands: vec![],
+            container: None,
         };
 
         let help = generate_help(&config, get_name(&config));
@@ -553,6 +556,7 @@ mod tests {
                 value_type: ValueType::Double,
             }],
             subcommands: vec![],
+            container: None,
         };
 
         let double_help = generate_help(&double_config, get_name(&double_config));

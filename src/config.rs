@@ -51,6 +51,15 @@ pub enum ConfigError {
 
     #[error("'value_type' cannot be used with flag type on argument '{0}'")]
     ValueTypeOnFlag(String),
+
+    #[error("unknown container runtime '{0}': must be \"docker\" or \"podman\"")]
+    UnknownContainerRuntime(String),
+
+    #[error("container image must not be empty")]
+    ContainerImageEmpty,
+
+    #[error("'container' cannot be used inside a subcommand")]
+    ContainerInSubcommand,
 }
 
 /// The type of argument.
@@ -187,6 +196,18 @@ pub struct ArgConfig {
     pub value_type: ValueType,
 }
 
+/// Configuration for running the command inside a container (schema_version >= 2).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ContainerConfig {
+    /// Container runtime: "docker" or "podman"
+    pub runtime: String,
+    /// Container image name (non-empty)
+    pub image: String,
+    /// Extra arguments passed verbatim to the runtime
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
 /// Configuration for a subcommand (schema_version >= 2).
 #[derive(Debug, Clone, Deserialize)]
 pub struct SubcommandConfig {
@@ -197,6 +218,8 @@ pub struct SubcommandConfig {
     /// Arguments for this subcommand
     #[serde(default)]
     pub args: Vec<ArgConfig>,
+    /// Container config is not permitted inside subcommands
+    pub container: Option<ContainerConfig>,
 }
 
 fn default_schema_version() -> u32 {
@@ -223,6 +246,8 @@ pub struct Config {
     /// Subcommands (schema_version >= 2)
     #[serde(default)]
     pub subcommands: Vec<SubcommandConfig>,
+    /// Container execution config (schema_version >= 2)
+    pub container: Option<ContainerConfig>,
 }
 
 impl Config {
@@ -246,6 +271,12 @@ impl Config {
             if !self.subcommands.is_empty() {
                 return Err(ConfigError::SubcommandsRequireV2);
             }
+            if self.container.is_some() {
+                return Err(ConfigError::FieldRequiresV2(
+                    "container".to_string(),
+                    String::new(),
+                ));
+            }
             for arg in &self.args {
                 Self::validate_no_v2_fields(arg)?;
             }
@@ -262,12 +293,28 @@ impl Config {
             Self::validate_arg(arg, self.schema_version)?;
         }
 
+        // Validate container (schema_version >= 2 already checked above)
+        if let Some(ref container) = self.container {
+            if container.runtime != "docker" && container.runtime != "podman" {
+                return Err(ConfigError::UnknownContainerRuntime(
+                    container.runtime.clone(),
+                ));
+            }
+            if container.image.is_empty() {
+                return Err(ConfigError::ContainerImageEmpty);
+            }
+        }
+
         // Validate subcommands
         if self.schema_version >= 2 {
             let mut subcmd_names = HashSet::new();
             for subcmd in &self.subcommands {
                 if !subcmd_names.insert(&subcmd.name) {
                     return Err(ConfigError::DuplicateSubcommandName(subcmd.name.clone()));
+                }
+
+                if subcmd.container.is_some() {
+                    return Err(ConfigError::ContainerInSubcommand);
                 }
 
                 let mut subcmd_arg_names = HashSet::new();
@@ -1315,6 +1362,118 @@ mod tests {
             value_type: ValueType::Double,
         };
         assert!(arg.uses_v2_features());
+    }
+
+    // Container config tests
+
+    #[test]
+    fn test_container_docker_runtime_parses_successfully() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "docker",
+                "image": "ubuntu:22.04",
+                "args": ["--rm", "-it"]
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.runtime, "docker");
+        assert_eq!(container.image, "ubuntu:22.04");
+        assert_eq!(container.args, vec!["--rm", "-it"]);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_container_unknown_runtime_returns_error() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "singularity",
+                "image": "ubuntu:22.04",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::UnknownContainerRuntime(rt)) if rt == "singularity")
+        );
+    }
+
+    #[test]
+    fn test_container_in_subcommand_returns_error() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "subcommands": [
+                {
+                    "name": "run",
+                    "container": {
+                        "runtime": "docker",
+                        "image": "ubuntu:22.04",
+                        "args": []
+                    }
+                }
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::ContainerInSubcommand)));
+    }
+
+    #[test]
+    fn test_container_empty_image_returns_error() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "docker",
+                "image": "",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::ContainerImageEmpty)));
+    }
+
+    #[test]
+    fn test_container_in_v1_schema_returns_field_requires_v2() {
+        let json = r#"{
+            "schema_version": 1,
+            "name": "test",
+            "container": {
+                "runtime": "docker",
+                "image": "ubuntu:22.04",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::FieldRequiresV2(field, _)) if field == "container")
+        );
+    }
+
+    #[test]
+    fn test_container_podman_runtime_parses_successfully() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "podman",
+                "image": "fedora:39",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.runtime, "podman");
+        assert_eq!(container.image, "fedora:39");
+        config.validate().unwrap();
     }
 
     #[test]
