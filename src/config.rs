@@ -1353,6 +1353,24 @@ mod tests {
     }
 
     #[test]
+    fn test_container_podman_runtime_parses_successfully() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "podman",
+                "image": "fedora:39",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.runtime, "podman");
+        assert_eq!(container.image, "fedora:39");
+        config.validate().unwrap();
+    }
+
+    #[test]
     fn test_default_value_type_is_string() {
         let json = r#"{
             "schema_version": 2,
