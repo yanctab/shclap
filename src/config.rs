@@ -187,6 +187,18 @@ pub struct ArgConfig {
     pub value_type: ValueType,
 }
 
+/// Configuration for running the command inside a container (schema_version >= 2).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ContainerConfig {
+    /// Container runtime: "docker" or "podman"
+    pub runtime: String,
+    /// Container image name (non-empty)
+    pub image: String,
+    /// Extra arguments passed verbatim to the runtime
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
 /// Configuration for a subcommand (schema_version >= 2).
 #[derive(Debug, Clone, Deserialize)]
 pub struct SubcommandConfig {
@@ -223,6 +235,8 @@ pub struct Config {
     /// Subcommands (schema_version >= 2)
     #[serde(default)]
     pub subcommands: Vec<SubcommandConfig>,
+    /// Container execution config (schema_version >= 2)
+    pub container: Option<ContainerConfig>,
 }
 
 impl Config {
@@ -1315,6 +1329,27 @@ mod tests {
             value_type: ValueType::Double,
         };
         assert!(arg.uses_v2_features());
+    }
+
+    // Container config tests
+
+    #[test]
+    fn test_container_docker_runtime_parses_successfully() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "docker",
+                "image": "ubuntu:22.04",
+                "args": ["--rm", "-it"]
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.runtime, "docker");
+        assert_eq!(container.image, "ubuntu:22.04");
+        assert_eq!(container.args, vec!["--rm", "-it"]);
+        config.validate().unwrap();
     }
 
     #[test]
