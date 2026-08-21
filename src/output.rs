@@ -1,6 +1,6 @@
 //! Temporary file generation with shell export statements and special outputs.
 
-use crate::config::{ArgType, Config};
+use crate::config::{ArgType, Config, ContainerConfig};
 use crate::parser::ParsedValue;
 use anyhow::Result;
 use std::collections::HashMap;
@@ -263,6 +263,41 @@ fn shell_quote(value: &str) -> String {
     } else {
         value.to_string()
     }
+}
+
+/// Generate the shell fragment that re-execs the calling script inside a container.
+///
+/// Emits a script that:
+/// 1. Resolves the calling script and shclap binary paths
+/// 2. Checks the container runtime is available
+/// 3. Re-execs the script inside the container with the required volume mounts
+pub fn generate_container_reexec_string(container: &ContainerConfig, _config: &Config) -> String {
+    let rt = &container.runtime;
+    let mut s = String::new();
+    s.push_str("_shclap_script=$(readlink -f \"$0\")\n");
+    s.push_str("_shclap_bin=$(readlink -f \"$(command -v shclap)\")\n");
+    s.push_str(&format!(
+        "command -v {rt} >/dev/null 2>&1 || {{ echo \"shclap: container runtime '{rt}' not found\" >&2; exit 127; }}\n"
+    ));
+    s.push_str(&format!("exec {rt} run --rm \\\n"));
+    s.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
+    s.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
+    s.push_str("  -e SHCLAP_IN_CONTAINER=1 \\\n");
+    for arg in &container.args {
+        s.push_str(&format!("  {arg} \\\n"));
+    }
+    s.push_str(&format!("  {} \\\n", container.image));
+    s.push_str("  bash \"$_shclap_script\" \"$@\"\n");
+    s
+}
+
+/// Write the container re-exec shell fragment to a temp file and return the path.
+pub fn generate_container_reexec_output(
+    container: &ContainerConfig,
+    config: &Config,
+) -> Result<PathBuf> {
+    let content = generate_container_reexec_string(container, config);
+    write_temp_file(&content)
 }
 
 /// Write content to a temporary file and return its path.
@@ -632,5 +667,85 @@ mod tests {
         env::remove_var("SPECIAL_PATH");
 
         assert!(result.contains("'path with spaces'"));
+    }
+
+    // Container reexec tests
+
+    #[test]
+    fn test_generate_container_reexec_string_no_extra_args() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+        };
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test"}"#,
+        )
+        .unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Must start with canonical script / binary path resolution
+        assert!(output.contains("_shclap_script=$(readlink -f \"$0\")"));
+        assert!(output.contains("_shclap_bin=$(readlink -f \"$(command -v shclap)\")"));
+        // Runtime availability check with correct error message
+        assert!(output.contains("command -v docker >/dev/null 2>&1 || { echo \"shclap: container runtime 'docker' not found\" >&2; exit 127; }"));
+        // exec form with script and binary volume mounts
+        assert!(output.contains("exec docker run --rm \\"));
+        assert!(output.contains("-v \"$_shclap_script:$_shclap_script:ro\" \\"));
+        assert!(output.contains("-v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\"));
+        assert!(output.contains("-e SHCLAP_IN_CONTAINER=1 \\"));
+        // image and re-exec
+        assert!(output.contains("ubuntu:22.04 \\"));
+        assert!(output.contains("bash \"$_shclap_script\" \"$@\""));
+    }
+
+    #[test]
+    fn test_generate_container_reexec_string_with_extra_args() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "podman".to_string(),
+            image: "fedora:39".to_string(),
+            args: vec!["-v".to_string(), "/host:/container:ro".to_string()],
+        };
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test"}"#,
+        )
+        .unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Extra args must appear verbatim before the image
+        assert!(output.contains("-v \\"));
+        assert!(output.contains("/host:/container:ro \\"));
+        // Image comes after extra args
+        let v_pos = output.find("-v \\\n  /host:/container:ro \\").unwrap();
+        let img_pos = output.find("fedora:39 \\").unwrap();
+        assert!(v_pos < img_pos);
+    }
+
+    #[test]
+    fn test_generate_container_reexec_output_creates_file() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "alpine:3".to_string(),
+            args: vec![],
+        };
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test"}"#,
+        )
+        .unwrap();
+
+        let path = generate_container_reexec_output(&container, &config).unwrap();
+        assert!(path.exists());
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("exec docker run --rm"));
+        assert!(contents.contains("alpine:3"));
+        std::fs::remove_file(path).unwrap();
     }
 }

@@ -875,6 +875,60 @@ else
 fi
 
 
+section "20. Container Re-exec Dispatch"
+
+# Test: with container config and no SHCLAP_IN_CONTAINER, output file contains exec line
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exec docker run"; then
+    pass "container config without SHCLAP_IN_CONTAINER emits exec re-exec file"
+else
+    fail "container reexec dispatch" "output file should contain 'exec docker run'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: with SHCLAP_IN_CONTAINER=1, output file contains export statements (normal path)
+run_test
+export SHCLAP_IN_CONTAINER=1
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+unset SHCLAP_VERBOSE 2>/dev/null || true
+source "$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- -v)"
+unset SHCLAP_IN_CONTAINER
+if [[ "${SHCLAP_VERBOSE:-}" == "true" ]]; then
+    pass "SHCLAP_IN_CONTAINER=1 bypasses container dispatch and emits normal exports"
+else
+    fail "container bypass" "SHCLAP_VERBOSE=true" "SHCLAP_VERBOSE=${SHCLAP_VERBOSE:-unset}"
+fi
+
+# Test: container reexec output includes runtime availability check
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"podman","image":"fedora:39","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "command -v podman" && echo "$OUTPUT_CONTENTS" | grep -q "container runtime 'podman' not found"; then
+    pass "container reexec output includes runtime availability check"
+else
+    fail "container runtime check" "output file should contain runtime availability check" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: Help outcome is unaffected by container config
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- --help 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exit 0" && ! echo "$OUTPUT_CONTENTS" | grep -q "exec docker run"; then
+    pass "Help outcome is unaffected by container config"
+else
+    fail "Help unaffected by container" "output file should contain 'exit 0' and not 'exec docker run'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
 #
 # Summary
 #
