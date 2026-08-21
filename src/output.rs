@@ -299,13 +299,11 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Co
     }
 
     // Step 2: Collect explicit env names from args
-    fn collect_env_vars(
-        args: &[ArgConfig],
-        config: &Config,
-        forwarded_vars: &mut HashSet<String>,
-    ) {
+    fn collect_env_vars(args: &[ArgConfig], config: &Config, forwarded_vars: &mut HashSet<String>) {
         for arg in args {
-            if let Some(var_name) = arg.effective_env(config.effective_prefix(), config.schema_version) {
+            if let Some(var_name) =
+                arg.effective_env(config.effective_prefix(), config.schema_version)
+            {
                 forwarded_vars.insert(var_name);
             }
         }
@@ -722,10 +720,7 @@ mod tests {
             image: "ubuntu:22.04".to_string(),
             args: vec![],
         };
-        let config = Config::from_json(
-            r#"{"schema_version": 2, "name": "test"}"#,
-        )
-        .unwrap();
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
         let output = generate_container_reexec_string(&container, &config);
 
@@ -753,10 +748,7 @@ mod tests {
             image: "fedora:39".to_string(),
             args: vec!["-v".to_string(), "/host:/container:ro".to_string()],
         };
-        let config = Config::from_json(
-            r#"{"schema_version": 2, "name": "test"}"#,
-        )
-        .unwrap();
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
         let output = generate_container_reexec_string(&container, &config);
 
@@ -778,10 +770,7 @@ mod tests {
             image: "alpine:3".to_string(),
             args: vec![],
         };
-        let config = Config::from_json(
-            r#"{"schema_version": 2, "name": "test"}"#,
-        )
-        .unwrap();
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
         let path = generate_container_reexec_output(&container, &config).unwrap();
         assert!(path.exists());
@@ -800,10 +789,9 @@ mod tests {
             image: "ubuntu:22.04".to_string(),
             args: vec![],
         };
-        let config = Config::from_json(
-            r#"{"schema_version": 2, "name": "test", "prefix": "MYAPP_"}"#,
-        )
-        .unwrap();
+        let config =
+            Config::from_json(r#"{"schema_version": 2, "name": "test", "prefix": "MYAPP_"}"#)
+                .unwrap();
 
         // Set environment variables with the prefix
         env::set_var("MYAPP_DEBUG", "true");
@@ -826,7 +814,7 @@ mod tests {
 
     #[test]
     fn test_container_reexec_forwards_custom_env_names() {
-        use crate::config::{Config, ContainerConfig, ArgConfig, ArgType, EnvSetting};
+        use crate::config::{Config, ContainerConfig};
 
         let container = ContainerConfig {
             runtime: "docker".to_string(),

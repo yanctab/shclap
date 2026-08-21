@@ -929,6 +929,92 @@ else
 fi
 rm -f "$OUTPUT_FILE"
 
+# Test: Version outcome is unaffected by container config
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","version":"1.0.0","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- --version 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exit 0" && ! echo "$OUTPUT_CONTENTS" | grep -q "exec docker run"; then
+    pass "Version outcome is unaffected by container config"
+else
+    fail "Version unaffected by container" "output file should contain 'exit 0' and not 'exec docker run'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: shclap help subcommand is unaffected by container config
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","description":"A test app","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+HELP_OUTPUT=$("$SHCLAP" help --config "$CONTAINER_CONFIG" --name testapp 2>&1)
+if ! echo "$HELP_OUTPUT" | grep -q "exec docker run"; then
+    pass "shclap help subcommand is unaffected by container config"
+else
+    fail "help subcommand container" "output should not contain 'exec docker run'" "$HELP_OUTPUT"
+fi
+
+# Test: shclap version subcommand is unaffected by container config
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","version":"2.5.0","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+VERSION_OUTPUT=$("$SHCLAP" version --config "$CONTAINER_CONFIG" --name testapp 2>&1)
+if ! echo "$VERSION_OUTPUT" | grep -q "exec docker run"; then
+    pass "shclap version subcommand is unaffected by container config"
+else
+    fail "version subcommand container" "output should not contain 'exec docker run'" "$VERSION_OUTPUT"
+fi
+
+# Test: shclap print subcommand is unaffected by container config
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","prefix":"MYAPP_","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+PRINT_OUTPUT=$("$SHCLAP" print --config "$CONTAINER_CONFIG" --name testapp 2>&1)
+if ! echo "$PRINT_OUTPUT" | grep -q "exec docker run"; then
+    pass "shclap print subcommand is unaffected by container config"
+else
+    fail "print subcommand container" "output should not contain 'exec docker run'" "$PRINT_OUTPUT"
+fi
+
+# Test: Structural order of exec-form file (exec-form order verification)
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testscript","container":{"runtime":"docker","image":"test-image:latest","args":[]},"args":[{"name":"foo","short":"f","type":"option"}]}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+
+# Verify all required elements are present
+all_present=true
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "_shclap_script="; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "_shclap_bin="; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "command -v docker"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "exec docker run --rm"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "_shclap_script:ro"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "/usr/local/bin/shclap:ro"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "SHCLAP_IN_CONTAINER=1"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "test-image:latest"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF 'bash "$_shclap_script" "$@"'; then all_present=false; fi
+
+# Verify order: _shclap_script comes before _shclap_bin comes before exec
+script_line=$(echo "$OUTPUT_CONTENTS" | grep -n "_shclap_script=" | head -1 | cut -d: -f1)
+bin_line=$(echo "$OUTPUT_CONTENTS" | grep -n "_shclap_bin=" | head -1 | cut -d: -f1)
+exec_line=$(echo "$OUTPUT_CONTENTS" | grep -n "exec docker run" | head -1 | cut -d: -f1)
+image_line=$(echo "$OUTPUT_CONTENTS" | grep -n "test-image:latest" | head -1 | cut -d: -f1)
+bash_line=$(echo "$OUTPUT_CONTENTS" | grep -n 'bash "$_shclap_script"' | head -1 | cut -d: -f1)
+
+correct_order=true
+if [[ -z "$script_line" || -z "$bin_line" || -z "$exec_line" || -z "$image_line" || -z "$bash_line" ]]; then
+    correct_order=false
+elif [[ $script_line -ge $bin_line || $bin_line -ge $exec_line || $exec_line -ge $image_line || $image_line -ge $bash_line ]]; then
+    correct_order=false
+fi
+
+if [[ "$all_present" == "true" && "$correct_order" == "true" ]]; then
+    pass "Container exec-form file contains elements in correct order"
+else
+    fail "Container exec-form order" "Elements should appear in specific order" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
 #
 # Summary
 #
