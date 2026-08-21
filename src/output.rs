@@ -293,6 +293,11 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Co
     s.push_str(&format!(
         "command -v {rt} >/dev/null 2>&1 || {{ echo \"shclap: container runtime '{rt}' not found\" >&2; exit 127; }}\n"
     ));
+    s.push_str(&format!(
+        "echo \"shclap: bootstrapping into {rt}:{image}\" >&2\n",
+        image = container.image
+    ));
+    s.push_str("set -x\n");
     s.push_str(&format!("exec {rt} run --rm \\\n"));
     s.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
     s.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
