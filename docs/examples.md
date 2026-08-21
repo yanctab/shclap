@@ -400,8 +400,62 @@ $ ./analyze.sh -t abc data.csv
 shclap: invalid value 'abc' for '--threshold': invalid float literal
 ```
 
+## Container Bootstrap
+
+Automatically re-execute a script inside a container:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+CONFIG='{
+  "schema_version": 2,
+  "name": "containerized-script",
+  "description": "A script that runs inside a container",
+  "version": "1.0.0",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:latest",
+    "args": ["--network", "host"]
+  },
+  "args": [
+    {"name": "message", "short": "m", "type": "option", "required": true, "help": "Message to display"},
+    {"name": "verbose", "short": "v", "type": "flag", "help": "Verbose output"}
+  ]
+}'
+
+# Guard host-only setup with SHCLAP_IN_CONTAINER check
+if [[ -z "${SHCLAP_IN_CONTAINER:-}" ]]; then
+  echo "Preparing on the host..."
+  # Any host-specific setup here (e.g., downloading, prerequisite checks)
+  # This runs only on the first (host) pass
+fi
+
+source $(shclap parse --config "$CONFIG" -- "$@")
+
+# All code below runs inside the container
+echo "Running inside container"
+echo "Message: $SHCLAP_MESSAGE"
+
+if [[ "$SHCLAP_VERBOSE" == "true" ]]; then
+  echo "Verbose mode enabled"
+  echo "Container environment:"
+  env | head -5
+fi
+```
+
+Usage (script automatically re-execs in container):
+
+```bash
+./containerized-script.sh -m "Hello from container"
+./containerized-script.sh -m "Hello" -v
+```
+
+Note: The user just invokes the script normally. The automatic re-execution into the container happens transparently. Any code before the `source $(shclap parse ...)` line runs twice (once on the host, once in the container), so use the `SHCLAP_IN_CONTAINER` guard to prevent side effects.
+
 ## See Also
 
 - [Configuration Reference](configuration.md) - Full JSON schema reference
+- [Container Bootstrap](container.md) - Container re-execution guide
 - [Schema Reference](schema.md) - Schema versioning and v2 features
 - [CLI Reference](cli-reference.md) - Command-line options

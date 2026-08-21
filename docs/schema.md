@@ -20,6 +20,7 @@ See [Configuration Reference](configuration.md) for the complete field reference
 | Need multiple values (arrays) | v2 |
 | Need value type validation (int, bool, double) | v2 |
 | Need subcommands like `git init`, `git commit` | v2 |
+| Need container bootstrap (auto re-exec into docker/podman) | v2 |
 
 ## Schema Version 1 (Default)
 
@@ -278,6 +279,32 @@ esac
 | `help` | string | No | Help text for subcommand |
 | `args` | array | No | Arguments specific to this subcommand |
 
+### Container Bootstrap
+
+Container bootstrap enables scripts to automatically re-execute themselves inside a container. When configured, shclap emits code that detects whether the script is already running in a container (via the `SHCLAP_IN_CONTAINER` environment variable), and if not, re-execs the script inside the specified container image using `docker` or `podman`.
+
+**Example configuration:**
+
+```json
+{
+  "schema_version": 2,
+  "name": "myscript",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:latest",
+    "args": ["--network", "host"]
+  },
+  "args": [...]
+}
+```
+
+**Key notes:**
+
+- Schema v2 only; not supported in v1
+- Not valid inside subcommands; container is a top-level feature
+- `SHCLAP_IN_CONTAINER=1` environment variable marks container re-execution
+- See [Container Bootstrap](container.md) for complete documentation and examples
+
 ### Output Format
 
 #### Arrays
@@ -321,6 +348,7 @@ Version 2 is fully backwards-compatible with version 1 configurations.
 ## See Also
 
 - [Configuration Reference](configuration.md) - Full JSON schema reference
+- [Container Bootstrap](container.md) - Container re-execution guide
 - [Environment Variables](environment-variables.md) - Environment variable handling
 - [Examples](examples.md) - Complete working examples
 - [CLI Reference](cli-reference.md) - Command-line options
