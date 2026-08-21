@@ -1,6 +1,6 @@
 //! Temporary file generation with shell export statements and special outputs.
 
-use crate::config::{ArgType, Config, ContainerConfig};
+use crate::config::{ArgConfig, ArgType, Config, ContainerConfig};
 use crate::parser::ParsedValue;
 use anyhow::Result;
 use std::collections::HashMap;
@@ -271,7 +271,10 @@ fn shell_quote(value: &str) -> String {
 /// 1. Resolves the calling script and shclap binary paths
 /// 2. Checks the container runtime is available
 /// 3. Re-execs the script inside the container with the required volume mounts
-pub fn generate_container_reexec_string(container: &ContainerConfig, _config: &Config) -> String {
+/// 4. Forwards prefix-matching and explicitly-named environment variables
+pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Config) -> String {
+    use std::collections::HashSet;
+
     let rt = &container.runtime;
     let mut s = String::new();
     s.push_str("_shclap_script=$(readlink -f \"$0\")\n");
@@ -283,6 +286,45 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, _config: &C
     s.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
     s.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
     s.push_str("  -e SHCLAP_IN_CONTAINER=1 \\\n");
+
+    // Collect environment variable names to forward
+    let mut forwarded_vars: HashSet<String> = HashSet::new();
+
+    // Step 1: Collect prefix-matching environment variables
+    let prefix = config.effective_prefix();
+    for (name, _) in env::vars() {
+        if name.starts_with(prefix) {
+            forwarded_vars.insert(name);
+        }
+    }
+
+    // Step 2: Collect explicit env names from args
+    fn collect_env_vars(
+        args: &[ArgConfig],
+        config: &Config,
+        forwarded_vars: &mut HashSet<String>,
+    ) {
+        for arg in args {
+            if let Some(var_name) = arg.effective_env(config.effective_prefix(), config.schema_version) {
+                forwarded_vars.insert(var_name);
+            }
+        }
+    }
+
+    collect_env_vars(&config.args, config, &mut forwarded_vars);
+
+    // Also collect from subcommands
+    for subcmd in &config.subcommands {
+        collect_env_vars(&subcmd.args, config, &mut forwarded_vars);
+    }
+
+    // Step 3: Emit the -e lines in sorted order for deterministic output
+    let mut sorted_vars: Vec<_> = forwarded_vars.into_iter().collect();
+    sorted_vars.sort();
+    for var_name in sorted_vars {
+        s.push_str(&format!("  -e {var_name} \\\n"));
+    }
+
     for arg in &container.args {
         s.push_str(&format!("  {arg} \\\n"));
     }
@@ -747,5 +789,112 @@ mod tests {
         assert!(contents.contains("exec docker run --rm"));
         assert!(contents.contains("alpine:3"));
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_container_reexec_forwards_prefix_matching_env_vars() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+        };
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "prefix": "MYAPP_"}"#,
+        )
+        .unwrap();
+
+        // Set environment variables with the prefix
+        env::set_var("MYAPP_DEBUG", "true");
+        env::set_var("MYAPP_LOG_LEVEL", "info");
+        env::set_var("UNRELATED_VAR", "should_not_appear");
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Clean up
+        env::remove_var("MYAPP_DEBUG");
+        env::remove_var("MYAPP_LOG_LEVEL");
+        env::remove_var("UNRELATED_VAR");
+
+        // Should forward prefix-matching vars
+        assert!(output.contains("-e MYAPP_DEBUG \\"));
+        assert!(output.contains("-e MYAPP_LOG_LEVEL \\"));
+        // Should not forward unrelated vars
+        assert!(!output.contains("UNRELATED_VAR"));
+    }
+
+    #[test]
+    fn test_container_reexec_forwards_custom_env_names() {
+        use crate::config::{Config, ContainerConfig, ArgConfig, ArgType, EnvSetting};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+        };
+
+        let config_json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {
+                    "name": "verbose",
+                    "type": "flag",
+                    "env": "CUSTOM_VERBOSE"
+                },
+                {
+                    "name": "config",
+                    "type": "option",
+                    "env": "CONFIG_PATH"
+                }
+            ]
+        }"#;
+
+        let config = Config::from_json(config_json).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Should forward custom env names
+        assert!(output.contains("-e CUSTOM_VERBOSE \\"));
+        assert!(output.contains("-e CONFIG_PATH \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_deduplicates_env_vars() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+        };
+
+        let config_json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "prefix": "SHCLAP_",
+            "args": [
+                {
+                    "name": "verbose",
+                    "type": "flag",
+                    "env": "SHCLAP_VERBOSE"
+                }
+            ]
+        }"#;
+
+        let config = Config::from_json(config_json).unwrap();
+
+        // Set an env var that matches both the prefix and a custom env name
+        env::set_var("SHCLAP_VERBOSE", "true");
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Clean up
+        env::remove_var("SHCLAP_VERBOSE");
+
+        // Should appear only once, not duplicated
+        let count = output.matches("-e SHCLAP_VERBOSE \\").count();
+        assert_eq!(count, 1, "SHCLAP_VERBOSE should appear exactly once");
     }
 }
