@@ -987,6 +987,8 @@ all_present=true
 if ! echo "$OUTPUT_CONTENTS" | grep -qF "_shclap_script="; then all_present=false; fi
 if ! echo "$OUTPUT_CONTENTS" | grep -qF "_shclap_bin="; then all_present=false; fi
 if ! echo "$OUTPUT_CONTENTS" | grep -qF "command -v docker"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "shclap: bootstrapping into docker:"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "set -x"; then all_present=false; fi
 if ! echo "$OUTPUT_CONTENTS" | grep -qF "exec docker run --rm"; then all_present=false; fi
 if ! echo "$OUTPUT_CONTENTS" | grep -qF "_shclap_script:ro"; then all_present=false; fi
 if ! echo "$OUTPUT_CONTENTS" | grep -qF "/usr/local/bin/shclap:ro"; then all_present=false; fi
@@ -994,17 +996,20 @@ if ! echo "$OUTPUT_CONTENTS" | grep -qF "SHCLAP_IN_CONTAINER=1"; then all_presen
 if ! echo "$OUTPUT_CONTENTS" | grep -qF "test-image:latest"; then all_present=false; fi
 if ! echo "$OUTPUT_CONTENTS" | grep -qF 'bash "$_shclap_script" "$@"'; then all_present=false; fi
 
-# Verify order: _shclap_script comes before _shclap_bin comes before exec
-script_line=$(echo "$OUTPUT_CONTENTS" | grep -n "_shclap_script=" | head -1 | cut -d: -f1)
-bin_line=$(echo "$OUTPUT_CONTENTS" | grep -n "_shclap_bin=" | head -1 | cut -d: -f1)
-exec_line=$(echo "$OUTPUT_CONTENTS" | grep -n "exec docker run" | head -1 | cut -d: -f1)
-image_line=$(echo "$OUTPUT_CONTENTS" | grep -n "test-image:latest" | head -1 | cut -d: -f1)
-bash_line=$(echo "$OUTPUT_CONTENTS" | grep -n 'bash "$_shclap_script"' | head -1 | cut -d: -f1)
+# Verify order: _shclap_script comes before _shclap_bin comes before runtime check comes before debug echo comes before set -x comes before exec
+script_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "_shclap_script=" | head -1 | cut -d: -f1)
+bin_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "_shclap_bin=" | head -1 | cut -d: -f1)
+check_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "command -v docker" | head -1 | cut -d: -f1)
+debug_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "shclap: bootstrapping into" | head -1 | cut -d: -f1)
+setx_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "set -x" | head -1 | cut -d: -f1)
+exec_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "exec docker run" | head -1 | cut -d: -f1)
+image_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "test-image:latest \\" | head -1 | cut -d: -f1)
+bash_line=$(echo "$OUTPUT_CONTENTS" | grep -nF 'bash "$_shclap_script"' | head -1 | cut -d: -f1)
 
 correct_order=true
-if [[ -z "$script_line" || -z "$bin_line" || -z "$exec_line" || -z "$image_line" || -z "$bash_line" ]]; then
+if [[ -z "$script_line" || -z "$bin_line" || -z "$check_line" || -z "$debug_line" || -z "$setx_line" || -z "$exec_line" || -z "$image_line" || -z "$bash_line" ]]; then
     correct_order=false
-elif [[ $script_line -ge $bin_line || $bin_line -ge $exec_line || $exec_line -ge $image_line || $image_line -ge $bash_line ]]; then
+elif [[ $script_line -ge $bin_line || $bin_line -ge $check_line || $check_line -ge $debug_line || $debug_line -ge $setx_line || $setx_line -ge $exec_line || $exec_line -ge $image_line || $image_line -ge $bash_line ]]; then
     correct_order=false
 fi
 
