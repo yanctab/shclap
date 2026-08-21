@@ -3,8 +3,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use shclap::{
-    generate_error_output, generate_help, generate_help_output, generate_output, generate_print,
-    generate_version, generate_version_output, parse_args, Config, ParseOutcome,
+    generate_container_reexec_output, generate_error_output, generate_help, generate_help_output,
+    generate_output, generate_print, generate_version, generate_version_output, parse_args, Config,
+    ParseOutcome,
 };
 
 /// Clap-style argument parsing for shell scripts.
@@ -113,12 +114,27 @@ fn main() -> Result<()> {
             // Handle parse result
             match parse_args(&cfg, &args, effective_name) {
                 ParseOutcome::Success(result) => {
-                    let path = generate_output(
-                        &result.values,
-                        effective_prefix,
-                        result.subcommand.as_deref(),
-                    )
-                    .context("failed to generate output file")?;
+                    let in_container = std::env::var("SHCLAP_IN_CONTAINER").is_ok();
+                    let path = if !in_container {
+                        if let Some(container) = &cfg.container {
+                            generate_container_reexec_output(container, &cfg)
+                                .context("failed to generate container reexec output file")?
+                        } else {
+                            generate_output(
+                                &result.values,
+                                effective_prefix,
+                                result.subcommand.as_deref(),
+                            )
+                            .context("failed to generate output file")?
+                        }
+                    } else {
+                        generate_output(
+                            &result.values,
+                            effective_prefix,
+                            result.subcommand.as_deref(),
+                        )
+                        .context("failed to generate output file")?
+                    };
                     println!("{}", path.display());
                 }
                 ParseOutcome::Help(help_text) => {

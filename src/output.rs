@@ -1,6 +1,6 @@
 //! Temporary file generation with shell export statements and special outputs.
 
-use crate::config::{ArgType, Config};
+use crate::config::{ArgType, Config, ContainerConfig};
 use crate::parser::ParsedValue;
 use anyhow::Result;
 use std::collections::HashMap;
@@ -271,6 +271,64 @@ fn write_temp_file(content: &str) -> Result<PathBuf> {
     file.write_all(content.as_bytes())?;
     let path = file.into_temp_path().keep()?;
     Ok(path)
+}
+
+/// Generate a container re-exec shell fragment.
+///
+/// Emits an exec-form shell file that re-executes the script inside a container.
+/// The fragment will:
+/// 1. Resolve the script path
+/// 2. Resolve the shclap binary path
+/// 3. Check that the container runtime exists
+/// 4. Exec into the container with proper volume mounts and environment
+///
+/// # Arguments
+/// * `container` - The container configuration
+/// * `config` - The full script configuration (for future use, e.g., env var forwarding)
+///
+/// # Returns
+/// A string containing the shell fragment ready to be sourced or executed.
+pub fn generate_container_reexec_string(container: &ContainerConfig, _config: &Config) -> String {
+    let mut output = String::new();
+
+    output.push_str("_shclap_script=$(readlink -f \"$0\")\n");
+    output.push_str("_shclap_bin=$(readlink -f \"$(command -v shclap)\")\n");
+    output.push_str(&format!(
+        "command -v {} >/dev/null 2>&1 || {{ echo \"shclap: container runtime '{}' not found\" >&2; exit 127; }}\n",
+        container.runtime, container.runtime
+    ));
+    output.push_str(&format!("exec {} run --rm \\\n", container.runtime));
+    output.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
+    output.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
+    output.push_str("  -e SHCLAP_IN_CONTAINER=1 \\\n");
+
+    // Add container args, one per line with backslash continuation
+    for arg in &container.args {
+        output.push_str(&format!("  {} \\\n", arg));
+    }
+
+    output.push_str(&format!("  {} \\\n", container.image));
+    output.push_str("  bash \"$_shclap_script\" \"$@\"\n");
+
+    output
+}
+
+/// Generate container re-exec output to a temporary file.
+///
+/// Writes the container re-exec shell fragment to a temporary file and returns its path.
+///
+/// # Arguments
+/// * `container` - The container configuration
+/// * `config` - The full script configuration
+///
+/// # Returns
+/// A Result containing the PathBuf to the temporary file.
+pub fn generate_container_reexec_output(
+    container: &ContainerConfig,
+    config: &Config,
+) -> Result<PathBuf> {
+    let content = generate_container_reexec_string(container, config);
+    write_temp_file(&content)
 }
 
 #[cfg(test)]
@@ -632,5 +690,115 @@ mod tests {
         env::remove_var("SPECIAL_PATH");
 
         assert!(result.contains("'path with spaces'"));
+    }
+
+    #[test]
+    fn test_generate_container_reexec_string_docker() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{
+            "name": "myapp",
+            "schema_version": 2,
+            "container": {
+                "runtime": "docker",
+                "image": "myimage:latest"
+            }
+        }"#,
+        )
+        .unwrap();
+
+        let container = config.container.as_ref().unwrap();
+        let output = generate_container_reexec_string(container, &config);
+
+        // Check all required lines are present
+        assert!(output.contains("_shclap_script=$(readlink -f \"$0\")"));
+        assert!(output.contains("_shclap_bin=$(readlink -f \"$(command -v shclap)\")"));
+        assert!(output.contains("command -v docker >/dev/null 2>&1"));
+        assert!(output.contains("exec docker run --rm"));
+        assert!(output.contains("-v \"$_shclap_script:$_shclap_script:ro\""));
+        assert!(output.contains("-v \"$_shclap_bin:/usr/local/bin/shclap:ro\""));
+        assert!(output.contains("-e SHCLAP_IN_CONTAINER=1"));
+        assert!(output.contains("myimage:latest"));
+        assert!(output.contains("bash \"$_shclap_script\" \"$@\""));
+    }
+
+    #[test]
+    fn test_generate_container_reexec_string_podman() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{
+            "name": "myapp",
+            "schema_version": 2,
+            "container": {
+                "runtime": "podman",
+                "image": "myimage:v1.2.3"
+            }
+        }"#,
+        )
+        .unwrap();
+
+        let container = config.container.as_ref().unwrap();
+        let output = generate_container_reexec_string(container, &config);
+
+        // Check runtime-specific lines
+        assert!(output.contains("command -v podman >/dev/null 2>&1"));
+        assert!(output.contains("exec podman run --rm"));
+        assert!(output.contains("myimage:v1.2.3"));
+    }
+
+    #[test]
+    fn test_generate_container_reexec_string_with_args() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{
+            "name": "myapp",
+            "schema_version": 2,
+            "container": {
+                "runtime": "docker",
+                "image": "myimage:latest",
+                "args": ["--network=host", "--cap-add=NET_ADMIN"]
+            }
+        }"#,
+        )
+        .unwrap();
+
+        let container = config.container.as_ref().unwrap();
+        let output = generate_container_reexec_string(container, &config);
+
+        // Check that args are included verbatim
+        assert!(output.contains("--network=host"));
+        assert!(output.contains("--cap-add=NET_ADMIN"));
+    }
+
+    #[test]
+    fn test_generate_container_reexec_output_creates_file() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{
+            "name": "myapp",
+            "schema_version": 2,
+            "container": {
+                "runtime": "docker",
+                "image": "myimage:latest"
+            }
+        }"#,
+        )
+        .unwrap();
+
+        let container = config.container.as_ref().unwrap();
+        let path = generate_container_reexec_output(container, &config).unwrap();
+
+        assert!(path.exists());
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("_shclap_script=$(readlink -f \"$0\")"));
+        assert!(contents.contains("exec docker run --rm"));
+
+        // Clean up
+        std::fs::remove_file(path).unwrap();
     }
 }
