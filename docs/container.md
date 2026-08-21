@@ -55,7 +55,7 @@ Key points:
 - **Script mounting**: The script itself and the shclap binary are mounted as read-only volumes.
 - **Environment marker**: `SHCLAP_IN_CONTAINER=1` is set inside the container to prevent re-execution loops.
 - **Argument passing**: `"$@"` passes all original script arguments to the container.
-- **Extra args**: Arguments from the `container.args` field (e.g., `--network host`) are inserted before the image name.
+- **Extra args**: Arguments from the `container.args` field (e.g., `--network host`) are inserted before the image name. Each value is emitted as one shell word and single-quoted when it contains anything the shell would act on, so a value such as `"my label"` reaches the runtime as a single argument rather than two.
 - **Exit replacement**: `exec` replaces the host shell process with the container, so the container becomes the script's process.
 
 ## Re-Execution Semantics Warning

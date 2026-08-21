@@ -25,7 +25,7 @@ The `container` object enables automatic re-execution of scripts inside a contai
 |-----------|------|----------|-------------|
 | `runtime` | string | Yes | Container runtime: `"docker"` or `"podman"` |
 | `image` | string | Yes | Fully-qualified image reference, e.g. `registry.example.com/img:tag` |
-| `args` | array of strings | No | Extra flags passed verbatim to `<runtime> run` before the image name |
+| `args` | array of strings | No | Extra flags passed to `<runtime> run` before the image name. Each value is emitted as a single shell word (quoted when needed), so values may contain spaces. |
 
 See [Container Bootstrap](container.md) for detailed documentation.
 

@@ -255,13 +255,24 @@ pub fn generate_print(config: &Config, name: &str, prefix: &str) -> String {
     parts.join(" ")
 }
 
-/// Quote a value for shell if it contains special characters.
+/// Quote a value for safe use in generated shell code.
+///
+/// Uses an allowlist: a value passes through bare only when every character is
+/// inert to the shell. Anything else is single-quoted, so word splitting,
+/// globbing, and command substitution cannot happen when the generated file is
+/// sourced. A denylist is not enough here - `a;id` contains no whitespace and
+/// no quoting metacharacter, but still runs a command.
 fn shell_quote(value: &str) -> String {
-    if value.is_empty() || value.contains(|c: char| c.is_whitespace() || "\"'$`\\!".contains(c)) {
-        // Use single quotes, escaping any single quotes in the value
-        format!("'{}'", value.replace('\'', "'\\''"))
-    } else {
+    fn is_shell_safe(c: char) -> bool {
+        c.is_ascii_alphanumeric() || "-_./:=@%+,".contains(c)
+    }
+
+    if !value.is_empty() && value.chars().all(is_shell_safe) {
         value.to_string()
+    } else {
+        // Single quotes suppress every expansion; the only character that needs
+        // care inside them is the single quote itself.
+        format!("'{}'", value.replace('\'', "'\\''"))
     }
 }
 
@@ -323,10 +334,12 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Co
         s.push_str(&format!("  -e {var_name} \\\n"));
     }
 
+    // Quoted, not interpolated raw: these values come from the config file and
+    // are emitted into a file the caller sources.
     for arg in &container.args {
-        s.push_str(&format!("  {arg} \\\n"));
+        s.push_str(&format!("  {} \\\n", shell_quote(arg)));
     }
-    s.push_str(&format!("  {} \\\n", container.image));
+    s.push_str(&format!("  {} \\\n", shell_quote(&container.image)));
     s.push_str("  bash \"$_shclap_script\" \"$@\"\n");
     s
 }
@@ -759,6 +772,126 @@ mod tests {
         let v_pos = output.find("-v \\\n  /host:/container:ro \\").unwrap();
         let img_pos = output.find("fedora:39 \\").unwrap();
         assert!(v_pos < img_pos);
+    }
+
+    #[test]
+    fn test_container_reexec_quotes_args_containing_spaces() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:24.04".to_string(),
+            args: vec!["--label".to_string(), "my label".to_string()],
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Unquoted, the shell would split this into two arguments.
+        assert!(output.contains("  'my label' \\\n"));
+        assert!(!output.contains("  my label \\\n"));
+    }
+
+    #[test]
+    fn test_container_reexec_quotes_args_with_shell_metacharacters() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:24.04".to_string(),
+            args: vec![
+                "--label=a;id".to_string(),
+                "$(id)".to_string(),
+                "*".to_string(),
+            ],
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // The generated file is sourced, so none of these may reach the shell bare.
+        assert!(output.contains("  '--label=a;id' \\\n"));
+        assert!(output.contains("  '$(id)' \\\n"));
+        assert!(output.contains("  '*' \\\n"));
+    }
+
+    #[test]
+    fn test_container_reexec_quotes_single_quote_in_arg() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:24.04".to_string(),
+            args: vec!["it's".to_string()],
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        assert!(output.contains(r"  'it'\''s' \"));
+    }
+
+    #[test]
+    fn test_container_reexec_leaves_ordinary_args_unquoted() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "podman".to_string(),
+            image: "registry.example.com/team/img:v1.2.3".to_string(),
+            args: vec![
+                "--network".to_string(),
+                "host".to_string(),
+                "-v".to_string(),
+                "/host:/container:ro".to_string(),
+            ],
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Values that are inert to the shell stay readable.
+        assert!(output.contains("  --network \\\n  host \\\n"));
+        assert!(output.contains("  /host:/container:ro \\\n"));
+        assert!(output.contains("  registry.example.com/team/img:v1.2.3 \\\n"));
+    }
+
+    #[test]
+    fn test_container_reexec_quotes_image_with_metacharacters() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:24.04 ; id".to_string(),
+            args: vec![],
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        assert!(output.contains("  'ubuntu:24.04 ; id' \\\n"));
+    }
+
+    #[test]
+    fn test_shell_quote_allowlist() {
+        // Inert values pass through bare.
+        assert_eq!(shell_quote("ubuntu:24.04"), "ubuntu:24.04");
+        assert_eq!(shell_quote("--network"), "--network");
+        assert_eq!(shell_quote("/host:/container:ro"), "/host:/container:ro");
+        assert_eq!(shell_quote("a,b=c@d%e+f"), "a,b=c@d%e+f");
+
+        // Everything else is quoted.
+        assert_eq!(shell_quote(""), "''");
+        assert_eq!(shell_quote("a b"), "'a b'");
+        assert_eq!(shell_quote("a;id"), "'a;id'");
+        assert_eq!(shell_quote("a|b"), "'a|b'");
+        assert_eq!(shell_quote("a&b"), "'a&b'");
+        assert_eq!(shell_quote("$(id)"), "'$(id)'");
+        assert_eq!(shell_quote("`id`"), "'`id`'");
+        assert_eq!(shell_quote("a>b"), "'a>b'");
+        assert_eq!(shell_quote("*"), "'*'");
+        assert_eq!(shell_quote("~root"), "'~root'");
+        assert_eq!(shell_quote("a\nb"), "'a\nb'");
+        assert_eq!(shell_quote("it's"), r"'it'\''s'");
     }
 
     #[test]
