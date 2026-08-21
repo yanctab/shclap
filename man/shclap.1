@@ -227,6 +227,24 @@ Help text for the subcommand (optional).
 .B args
 Array of argument definitions for this subcommand (optional).
 .RE
+.SS "Container Bootstrap (Schema Version 2)"
+.TP
+.B runtime
+Container runtime to use. One of:
+.RS
+.TP
+.B docker
+Use the Docker runtime.
+.TP
+.B podman
+Use the Podman runtime.
+.RE
+.TP
+.B image
+Fully-qualified image reference (required). Example: registry.example.com/img:tag
+.TP
+.B args
+Array of extra flags to pass to the runtime. Example: ["--network", "host"]
 .SH OUTPUT FORMAT
 .SS "Scalar Values"
 Single values are exported as quoted strings:
@@ -304,6 +322,12 @@ shclap: duplicate argument name: verbose
 .TP
 .B Unsupported schema version
 shclap: unsupported schema version 99 (supported: 1-2)
+.TP
+.B Unknown container runtime
+shclap: unknown container runtime 'invalid'
+.TP
+.B Missing container image
+shclap: container image must not be empty
 .SH EXAMPLES
 .SS "Basic Script"
 .PP
