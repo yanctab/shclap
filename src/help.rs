@@ -246,7 +246,7 @@ mod tests {
             args,
             subcommands: vec![],
             container: None,
-            pull_policy: PullPolicy::IfNotPresent,
+            pull_policy: Default::default(),
         }
     }
 
@@ -483,7 +483,7 @@ mod tests {
             }],
             subcommands: vec![],
             container: None,
-            pull_policy: PullPolicy::IfNotPresent,
+            pull_policy: Default::default(),
         };
 
         let help = generate_help(&config, get_name(&config));
@@ -522,7 +522,7 @@ mod tests {
             }],
             subcommands: vec![],
             container: None,
-            pull_policy: PullPolicy::IfNotPresent,
+            pull_policy: Default::default(),
         };
 
         let help = generate_help(&config, get_name(&config));
@@ -561,7 +561,7 @@ mod tests {
             }],
             subcommands: vec![],
             container: None,
-            pull_policy: PullPolicy::IfNotPresent,
+            pull_policy: Default::default(),
         };
 
         let double_help = generate_help(&double_config, get_name(&double_config));
