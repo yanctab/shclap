@@ -376,6 +376,98 @@ fn write_temp_file(content: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Generate the shell fragment that re-execs the calling script inside a container.
+///
+/// Emits a script that:
+/// 1. Resolves the calling script and shclap binary paths
+/// 2. Checks the container runtime is available
+/// 3. Re-execs the script inside the container with the required volume mounts
+/// 4. Forwards prefix-matching and explicitly-named environment variables
+pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Config) -> String {
+    use crate::config::PullPolicy;
+    use std::collections::HashSet;
+
+    let rt = &container.runtime;
+    let mut s = String::new();
+    s.push_str("_shclap_script=$(readlink -f \"$0\")\n");
+    s.push_str("_shclap_bin=$(readlink -f \"$(command -v shclap)\")\n");
+    s.push_str(&format!(
+        "command -v {rt} >/dev/null 2>&1 || {{ echo \"shclap: container runtime '{rt}' not found\" >&2; exit 127; }}\n"
+    ));
+    s.push_str(&format!(
+        "echo \"shclap: bootstrapping into {rt}:{image}\" >&2\n",
+        image = container.image
+    ));
+    s.push_str("set -x\n");
+    s.push_str(&format!("exec {rt} run --rm \\\n"));
+
+    // Emit --pull flag based on PullPolicy
+    let pull_value = match config.pull_policy {
+        PullPolicy::Always => "always",
+        PullPolicy::Never => "never",
+        PullPolicy::IfNotPresent => "missing",
+    };
+    s.push_str(&format!("  --pull={pull_value} \\\n"));
+
+    s.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
+    s.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
+    s.push_str("  -e SHCLAP_IN_CONTAINER=1 \\\n");
+
+    // Collect environment variable names to forward
+    let mut forwarded_vars: HashSet<String> = HashSet::new();
+
+    // Step 1: Collect prefix-matching environment variables
+    let prefix = config.effective_prefix();
+    for (name, _) in env::vars() {
+        if name.starts_with(prefix) {
+            forwarded_vars.insert(name);
+        }
+    }
+
+    // Step 2: Collect explicit env names from args
+    fn collect_env_vars(args: &[ArgConfig], config: &Config, forwarded_vars: &mut HashSet<String>) {
+        for arg in args {
+            if let Some(var_name) =
+                arg.effective_env(config.effective_prefix(), config.schema_version)
+            {
+                forwarded_vars.insert(var_name);
+            }
+        }
+    }
+
+    collect_env_vars(&config.args, config, &mut forwarded_vars);
+
+    // Also collect from subcommands
+    for subcmd in &config.subcommands {
+        collect_env_vars(&subcmd.args, config, &mut forwarded_vars);
+    }
+
+    // Step 3: Emit the -e lines in sorted order for deterministic output
+    let mut sorted_vars: Vec<_> = forwarded_vars.into_iter().collect();
+    sorted_vars.sort();
+    for var_name in sorted_vars {
+        s.push_str(&format!("  -e {var_name} \\\n"));
+    }
+
+    // Quoted, not interpolated raw: these values come from the config file and
+    // are emitted into a file the caller sources.
+    for arg in &container.args {
+        s.push_str(&format!("  {} \\\n", shell_quote(arg)));
+    }
+    s.push_str(&format!("  {} \\\n", shell_quote(&container.image)));
+    s.push_str("  bash \"$_shclap_script\" \"$@\"\n");
+    s
+}
+
+/// Write the container re-exec shell fragment to a temp file and return the path.
+pub fn generate_container_reexec_output(
+    container: &ContainerConfig,
+    config: &Config,
+) -> Result<PathBuf> {
+    let content = generate_container_reexec_string(container, config);
+    write_temp_file(&content)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
