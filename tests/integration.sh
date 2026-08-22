@@ -1020,6 +1020,74 @@ else
 fi
 rm -f "$OUTPUT_FILE"
 
+
+section "21. Container Pull Policy"
+
+# Test: pull_policy omitted defaults to if-not-present (missing in --pull flag)
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=missing"; then
+    pass "pull_policy omitted defaults to --pull=missing"
+else
+    fail "pull_policy default" "output file should contain '--pull=missing'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: pull_policy always emits --pull=always
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","pull_policy":"always","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=always"; then
+    pass "pull_policy: always emits --pull=always"
+else
+    fail "pull_policy always" "output file should contain '--pull=always'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: pull_policy never emits --pull=never
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","pull_policy":"never","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=never"; then
+    pass "pull_policy: never emits --pull=never"
+else
+    fail "pull_policy never" "output file should contain '--pull=never'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: invalid pull_policy value produces deserialization error
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","pull_policy":"bogus","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT_FILE'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "pull policy" || echo "$ERROR_OUTPUT" | grep -q "unknown"; then
+    pass "invalid pull_policy value produces error"
+else
+    fail "invalid pull_policy" "output file should produce error when sourced" "$ERROR_OUTPUT"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: pull_policy works with podman runtime
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","pull_policy":"always","container":{"runtime":"podman","image":"fedora:39","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exec podman run" && echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=always"; then
+    pass "pull_policy works with podman runtime"
+else
+    fail "pull_policy podman" "output file should contain 'exec podman run' and '--pull=always'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
 #
 # Summary
 #
