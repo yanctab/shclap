@@ -3,9 +3,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use shclap::{
-    generate_container_reexec_output, generate_error_output, generate_help, generate_help_output,
-    generate_output, generate_print, generate_version, generate_version_output, parse_args, Config,
-    ParseOutcome,
+    detect_container_with, generate_container_reexec_output, generate_error_output, generate_help,
+    generate_help_output, generate_output, generate_print, generate_version,
+    generate_version_output, parse_args, Config, ContainerSignal, ParseOutcome,
 };
 
 /// Clap-style argument parsing for shell scripts.
@@ -31,6 +31,10 @@ enum Commands {
         /// Environment variable prefix (overrides config)
         #[arg(long)]
         prefix: Option<String>,
+
+        /// Filesystem root for container marker detection (test seam)
+        #[arg(long, hide = true)]
+        container_marker_root: Option<std::path::PathBuf>,
 
         /// Arguments to parse for the target script
         #[arg(last = true)]
@@ -83,6 +87,7 @@ fn main() -> Result<()> {
             config,
             name,
             prefix,
+            container_marker_root,
             args,
         } => {
             // Handle config parsing errors
@@ -111,30 +116,36 @@ fn main() -> Result<()> {
 
             let effective_prefix = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
 
+            // Detect container using the test seam
+            let marker_root = container_marker_root.as_deref().unwrap_or(std::path::Path::new("/"));
+            let detected_signal = detect_container_with(marker_root, |name| std::env::var(name).ok());
+
+            // If container is detected and config has container field, emit reexec and return
+            if let Some(signal) = detected_signal {
+                if let Some(container) = &cfg.container {
+                    // Emit stderr message for non-ShclapInContainer signals
+                    if signal != ContainerSignal::ShclapInContainer {
+                        eprintln!(
+                            "shclap: already inside container (via {}) — skipping bootstrap",
+                            signal.signal_name()
+                        );
+                    }
+                    let path = generate_container_reexec_output(container, &cfg)
+                        .context("failed to generate container reexec output file")?;
+                    println!("{}", path.display());
+                    return Ok(());
+                }
+            }
+
             // Handle parse result
             match parse_args(&cfg, &args, effective_name) {
                 ParseOutcome::Success(result) => {
-                    let in_container = std::env::var("SHCLAP_IN_CONTAINER").is_ok();
-                    let path = if !in_container {
-                        if let Some(container) = &cfg.container {
-                            generate_container_reexec_output(container, &cfg)
-                                .context("failed to generate container reexec output file")?
-                        } else {
-                            generate_output(
-                                &result.values,
-                                effective_prefix,
-                                result.subcommand.as_deref(),
-                            )
-                            .context("failed to generate output file")?
-                        }
-                    } else {
-                        generate_output(
-                            &result.values,
-                            effective_prefix,
-                            result.subcommand.as_deref(),
-                        )
-                        .context("failed to generate output file")?
-                    };
+                    let path = generate_output(
+                        &result.values,
+                        effective_prefix,
+                        result.subcommand.as_deref(),
+                    )
+                    .context("failed to generate output file")?;
                     println!("{}", path.display());
                 }
                 ParseOutcome::Help(help_text) => {
@@ -246,11 +257,13 @@ mod tests {
                 name,
                 prefix,
                 args,
+                container_marker_root,
             } => {
                 assert_eq!(config, r#"{"name":"test"}"#);
                 assert!(name.is_none());
                 assert!(prefix.is_none());
                 assert!(args.is_empty());
+                assert!(container_marker_root.is_none());
             }
             _ => panic!("Expected Parse command"),
         }
@@ -433,6 +446,7 @@ mod tests {
                 name: _,
                 prefix,
                 args: _,
+                container_marker_root: _,
             } => {
                 let cfg = Config::from_json(&config).unwrap();
                 let effective = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
@@ -459,6 +473,7 @@ mod tests {
                 name: _,
                 prefix,
                 args: _,
+                container_marker_root: _,
             } => {
                 let cfg = Config::from_json(&config).unwrap();
                 let effective = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
@@ -479,6 +494,7 @@ mod tests {
                 name: _,
                 prefix,
                 args: _,
+                container_marker_root: _,
             } => {
                 let cfg = Config::from_json(&config).unwrap();
                 let effective = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
@@ -527,6 +543,33 @@ mod tests {
                 let cfg = Config::from_json(&config).unwrap();
                 let effective = name.as_deref().or(cfg.name.as_deref()).unwrap();
                 assert_eq!(effective, "config_name");
+            }
+            _ => panic!("Expected Parse command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_subcommand_parses_container_marker_root() {
+        let cli = Cli::try_parse_from([
+            "shclap",
+            "parse",
+            "--config",
+            r#"{"name":"test"}"#,
+            "--container-marker-root",
+            "/tmp/test",
+            "--",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Parse {
+                container_marker_root,
+                ..
+            } => {
+                assert_eq!(
+                    container_marker_root,
+                    Some(std::path::PathBuf::from("/tmp/test"))
+                );
             }
             _ => panic!("Expected Parse command"),
         }
