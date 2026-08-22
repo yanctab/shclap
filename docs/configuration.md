@@ -13,8 +13,22 @@ shclap uses JSON configuration to define your CLI interface. This document cover
 | `prefix` | string | No | Environment variable prefix (default: `SHCLAP_`) |
 | `args` | array | No | Array of argument definitions (default: empty) |
 | `subcommands` | array | No | Array of subcommand definitions (v2 only) |
+| `container` | object | No | Container bootstrap config. Causes shclap to emit a re-exec file on the host pass. v2 only. See sub-fields below. |
 
 **Note:** The `name` field can be omitted if you provide the application name via the CLI `--name` flag. This is useful when you want to avoid hardcoding the script name in your configuration.
+
+## Container Fields (v2 Only)
+
+The `container` object enables automatic re-execution of scripts inside a container. All fields are sub-fields of the `container` object:
+
+| Sub-field | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `runtime` | string | Yes | Container runtime: `"docker"` or `"podman"` |
+| `image` | string | Yes | Fully-qualified image reference, e.g. `registry.example.com/img:tag` |
+| `pull_policy` | string | No | Container image pull policy: `"always"`, `"never"`, `"if-not-present"` (default). See [Container](container.md). |
+| `args` | array of strings | No | Extra flags passed to `<runtime> run` before the image name. Each value is emitted as a single shell word (quoted when needed), so values may contain spaces. |
+
+See [Container Bootstrap](container.md) for detailed documentation.
 
 ## Argument Fields
 
