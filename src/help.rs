@@ -1,6 +1,6 @@
 //! Help and version text generation for target scripts using Clap.
 
-use crate::config::{ArgConfig, ArgType, Config, SubcommandConfig, ValueType};
+use crate::config::{ArgConfig, ArgType, Config, PullPolicy, SubcommandConfig, ValueType};
 use clap::{Arg, ArgAction, Command};
 
 /// Build a Clap Command from a Config (for help/version generation).
@@ -245,6 +245,7 @@ mod tests {
             args,
             subcommands: vec![],
             container: None,
+            pull_policy: PullPolicy::IfNotPresent,
         }
     }
 
@@ -481,6 +482,7 @@ mod tests {
             }],
             subcommands: vec![],
             container: None,
+            pull_policy: PullPolicy::IfNotPresent,
         };
 
         let help = generate_help(&config, get_name(&config));
@@ -519,6 +521,7 @@ mod tests {
             }],
             subcommands: vec![],
             container: None,
+            pull_policy: PullPolicy::IfNotPresent,
         };
 
         let help = generate_help(&config, get_name(&config));
@@ -557,6 +560,7 @@ mod tests {
             }],
             subcommands: vec![],
             container: None,
+            pull_policy: PullPolicy::IfNotPresent,
         };
 
         let double_help = generate_help(&double_config, get_name(&double_config));
