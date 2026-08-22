@@ -284,6 +284,7 @@ fn shell_quote(value: &str) -> String {
 /// 3. Re-execs the script inside the container with the required volume mounts
 /// 4. Forwards prefix-matching and explicitly-named environment variables
 pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Config) -> String {
+    use crate::config::PullPolicy;
     use std::collections::HashSet;
 
     let rt = &container.runtime;
@@ -299,6 +300,15 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Co
     ));
     s.push_str("set -x\n");
     s.push_str(&format!("exec {rt} run --rm \\\n"));
+
+    // Emit --pull flag based on PullPolicy
+    let pull_value = match config.pull_policy {
+        PullPolicy::Always => "always",
+        PullPolicy::Never => "never",
+        PullPolicy::IfNotPresent => "missing",
+    };
+    s.push_str(&format!("  --pull={pull_value} \\\n"));
+
     s.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
     s.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
     s.push_str("  -e SHCLAP_IN_CONTAINER=1 \\\n");
@@ -1022,5 +1032,133 @@ mod tests {
         // Should appear only once, not duplicated
         let count = output.matches("-e SHCLAP_VERBOSE \\").count();
         assert_eq!(count, 1, "SHCLAP_VERBOSE should appear exactly once");
+    }
+
+    // Tests for --pull flag support
+    #[test]
+    fn test_container_reexec_pull_policy_always_docker() {
+        use crate::config::{Config, ContainerConfig, PullPolicy};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+        };
+        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "always"}"#;
+        let config = Config::from_json(config_json).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Should contain --pull=always immediately after --rm
+        assert!(output.contains("exec docker run --rm \\\n  --pull=always \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_pull_policy_never_docker() {
+        use crate::config::{Config, ContainerConfig, PullPolicy};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+        };
+        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "never"}"#;
+        let config = Config::from_json(config_json).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Should contain --pull=never immediately after --rm
+        assert!(output.contains("exec docker run --rm \\\n  --pull=never \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_pull_policy_ifnotpresent_docker() {
+        use crate::config::{Config, ContainerConfig, PullPolicy};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+        };
+        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "ifnotpresent"}"#;
+        let config = Config::from_json(config_json).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Should contain --pull=missing immediately after --rm
+        assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_pull_policy_always_podman() {
+        use crate::config::{Config, ContainerConfig, PullPolicy};
+
+        let container = ContainerConfig {
+            runtime: "podman".to_string(),
+            image: "fedora:39".to_string(),
+            args: vec![],
+        };
+        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "always"}"#;
+        let config = Config::from_json(config_json).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Should contain --pull=always immediately after --rm
+        assert!(output.contains("exec podman run --rm \\\n  --pull=always \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_pull_policy_never_podman() {
+        use crate::config::{Config, ContainerConfig, PullPolicy};
+
+        let container = ContainerConfig {
+            runtime: "podman".to_string(),
+            image: "fedora:39".to_string(),
+            args: vec![],
+        };
+        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "never"}"#;
+        let config = Config::from_json(config_json).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Should contain --pull=never immediately after --rm
+        assert!(output.contains("exec podman run --rm \\\n  --pull=never \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_pull_policy_ifnotpresent_podman() {
+        use crate::config::{Config, ContainerConfig, PullPolicy};
+
+        let container = ContainerConfig {
+            runtime: "podman".to_string(),
+            image: "fedora:39".to_string(),
+            args: vec![],
+        };
+        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "ifnotpresent"}"#;
+        let config = Config::from_json(config_json).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Should contain --pull=missing immediately after --rm
+        assert!(output.contains("exec podman run --rm \\\n  --pull=missing \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_default_pull_policy_is_ifnotpresent() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "alpine:3".to_string(),
+            args: vec![],
+        };
+        // No pull_policy specified, should default to IfNotPresent
+        let config_json = r#"{"schema_version": 2, "name": "test"}"#;
+        let config = Config::from_json(config_json).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Should contain --pull=missing (the mapped value for IfNotPresent) immediately after --rm
+        assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));
     }
 }
