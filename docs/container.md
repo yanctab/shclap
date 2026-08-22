@@ -26,6 +26,37 @@ The `container` node is a top-level configuration object in schema v2 that speci
 
 See [Configuration Reference](configuration.md) for the `container` field specification.
 
+## Container Image Pull Policy
+
+The `pull_policy` field controls when container images are pulled from a registry. This is useful for controlling whether shclap always fetches the latest version of an image, or reuses a locally cached image if available.
+
+**Valid values:**
+
+- `"always"` — Always pull the image from the registry, even if a local copy exists. Ensures the latest version is used.
+- `"never"` — Never pull; use only a locally cached image. If the image is not present locally, the container fails to start.
+- `"if-not-present"` — (Default) Pull only if the image is not already cached locally. Balances freshness with performance.
+
+**Example with pull_policy:**
+
+```json
+{
+  "schema_version": 2,
+  "name": "myscript",
+  "container": {
+    "runtime": "docker",
+    "image": "artifactory.example.com/team/img:v1.2.3",
+    "pull_policy": "always",
+    "args": ["--network", "host"]
+  },
+  "args": [
+    {"name": "verbose", "short": "v", "type": "flag"},
+    {"name": "output", "short": "o", "type": "option"}
+  ]
+}
+```
+
+When `pull_policy` is set, shclap passes the `--pull` flag to the container runtime with the specified policy value. For example, `"pull_policy": "always"` emits `docker run --pull always ...` in the generated shell code.
+
 ## Emitted Shell File
 
 When `container` is configured, shclap writes code before the normal argument parsing export statements. Here's an annotated example of what the emitted file contains:
