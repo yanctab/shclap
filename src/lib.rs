@@ -10,8 +10,8 @@ pub mod output;
 pub mod parser;
 
 pub use config::{
-    ArgConfig, ArgType, Config, ConfigError, ContainerConfig, SubcommandConfig, MAX_SCHEMA_VERSION,
-    MIN_SCHEMA_VERSION,
+    ArgConfig, ArgType, Config, ConfigError, ContainerConfig, PullPolicy, SubcommandConfig,
+    MAX_SCHEMA_VERSION, MIN_SCHEMA_VERSION,
 };
 pub use help::{generate_help, generate_version};
 pub use output::{
