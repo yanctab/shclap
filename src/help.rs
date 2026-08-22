@@ -229,6 +229,7 @@ pub fn generate_version(config: &Config, effective_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::PullPolicy;
 
     fn make_config(
         name: &str,
@@ -245,6 +246,7 @@ mod tests {
             args,
             subcommands: vec![],
             container: None,
+            pull_policy: PullPolicy::IfNotPresent,
         }
     }
 
@@ -481,6 +483,7 @@ mod tests {
             }],
             subcommands: vec![],
             container: None,
+            pull_policy: PullPolicy::IfNotPresent,
         };
 
         let help = generate_help(&config, get_name(&config));
@@ -519,6 +522,7 @@ mod tests {
             }],
             subcommands: vec![],
             container: None,
+            pull_policy: PullPolicy::IfNotPresent,
         };
 
         let help = generate_help(&config, get_name(&config));
@@ -557,6 +561,7 @@ mod tests {
             }],
             subcommands: vec![],
             container: None,
+            pull_policy: PullPolicy::IfNotPresent,
         };
 
         let double_help = generate_help(&double_config, get_name(&double_config));

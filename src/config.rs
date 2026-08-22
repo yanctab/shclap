@@ -60,6 +60,9 @@ pub enum ConfigError {
 
     #[error("'container' cannot be used inside a subcommand")]
     ContainerInSubcommand,
+
+    #[error("unknown pull policy '{0}': must be \"always\", \"never\", or \"ifnotpresent\"")]
+    InvalidPullPolicy(String),
 }
 
 /// The type of argument.
@@ -88,6 +91,20 @@ pub enum ValueType {
     Bool,
     /// 64-bit floating-point number
     Double,
+}
+
+/// Pull policy for container images (schema_version >= 2).
+/// Controls when container images are pulled from a registry.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PullPolicy {
+    /// Always pull the image from the registry
+    Always,
+    /// Never pull; use local image only
+    Never,
+    /// Pull only if the image is not present locally (default)
+    #[default]
+    IfNotPresent,
 }
 
 /// Environment variable fallback setting (schema_version >= 2).
@@ -248,6 +265,9 @@ pub struct Config {
     pub subcommands: Vec<SubcommandConfig>,
     /// Container execution config (schema_version >= 2)
     pub container: Option<ContainerConfig>,
+    /// Container image pull policy (schema_version >= 2, default: IfNotPresent)
+    #[serde(default)]
+    pub pull_policy: PullPolicy,
 }
 
 impl Config {
@@ -1513,5 +1533,61 @@ mod tests {
             ..arg.clone()
         };
         assert!(!string_arg.uses_v2_features());
+    }
+
+    // PullPolicy tests
+
+    #[test]
+    fn test_pull_policy_deserialise_always() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "pull_policy": "always"
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.pull_policy, PullPolicy::Always);
+    }
+
+    #[test]
+    fn test_pull_policy_deserialise_never() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "pull_policy": "never"
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.pull_policy, PullPolicy::Never);
+    }
+
+    #[test]
+    fn test_pull_policy_deserialise_ifnotpresent() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "pull_policy": "ifnotpresent"
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.pull_policy, PullPolicy::IfNotPresent);
+    }
+
+    #[test]
+    fn test_pull_policy_defaults_to_ifnotpresent() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test"
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.pull_policy, PullPolicy::IfNotPresent);
+    }
+
+    #[test]
+    fn test_pull_policy_unknown_string_returns_error() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "pull_policy": "unknown"
+        }"#;
+        let result = Config::from_json(json);
+        assert!(result.is_err());
     }
 }
