@@ -303,6 +303,7 @@ Container bootstrap enables scripts to automatically re-execute themselves insid
 - Schema v2 only; not supported in v1
 - Not valid inside subcommands; container is a top-level feature
 - `SHCLAP_IN_CONTAINER=1` environment variable marks container re-execution
+- `pull_policy` field controls when container images are pulled from registries; see [Container Bootstrap](container.md) for details
 - See [Container Bootstrap](container.md) for complete documentation and examples
 
 ### Output Format
