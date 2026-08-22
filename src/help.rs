@@ -1,6 +1,6 @@
 //! Help and version text generation for target scripts using Clap.
 
-use crate::config::{ArgConfig, ArgType, Config, PullPolicy, SubcommandConfig, ValueType};
+use crate::config::{ArgConfig, ArgType, Config, SubcommandConfig, ValueType};
 use clap::{Arg, ArgAction, Command};
 
 /// Build a Clap Command from a Config (for help/version generation).
@@ -229,6 +229,7 @@ pub fn generate_version(config: &Config, effective_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::PullPolicy;
 
     fn make_config(
         name: &str,
