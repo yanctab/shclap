@@ -32,6 +32,10 @@ enum Commands {
         #[arg(long)]
         prefix: Option<String>,
 
+        /// Filesystem root for container marker detection (test seam)
+        #[arg(long, hide = true)]
+        container_marker_root: Option<std::path::PathBuf>,
+
         /// Arguments to parse for the target script
         #[arg(last = true)]
         args: Vec<String>,
@@ -83,6 +87,7 @@ fn main() -> Result<()> {
             config,
             name,
             prefix,
+            container_marker_root,
             args,
         } => {
             // Handle config parsing errors
@@ -246,11 +251,13 @@ mod tests {
                 name,
                 prefix,
                 args,
+                container_marker_root,
             } => {
                 assert_eq!(config, r#"{"name":"test"}"#);
                 assert!(name.is_none());
                 assert!(prefix.is_none());
                 assert!(args.is_empty());
+                assert!(container_marker_root.is_none());
             }
             _ => panic!("Expected Parse command"),
         }
@@ -433,6 +440,7 @@ mod tests {
                 name: _,
                 prefix,
                 args: _,
+                container_marker_root: _,
             } => {
                 let cfg = Config::from_json(&config).unwrap();
                 let effective = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
@@ -459,6 +467,7 @@ mod tests {
                 name: _,
                 prefix,
                 args: _,
+                container_marker_root: _,
             } => {
                 let cfg = Config::from_json(&config).unwrap();
                 let effective = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
@@ -479,6 +488,7 @@ mod tests {
                 name: _,
                 prefix,
                 args: _,
+                container_marker_root: _,
             } => {
                 let cfg = Config::from_json(&config).unwrap();
                 let effective = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
@@ -527,6 +537,33 @@ mod tests {
                 let cfg = Config::from_json(&config).unwrap();
                 let effective = name.as_deref().or(cfg.name.as_deref()).unwrap();
                 assert_eq!(effective, "config_name");
+            }
+            _ => panic!("Expected Parse command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_subcommand_parses_container_marker_root() {
+        let cli = Cli::try_parse_from([
+            "shclap",
+            "parse",
+            "--config",
+            r#"{"name":"test"}"#,
+            "--container-marker-root",
+            "/tmp/test",
+            "--",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Parse {
+                container_marker_root,
+                ..
+            } => {
+                assert_eq!(
+                    container_marker_root,
+                    Some(std::path::PathBuf::from("/tmp/test"))
+                );
             }
             _ => panic!("Expected Parse command"),
         }
