@@ -5,6 +5,7 @@
 //! and outputting parsed values as shell export statements.
 
 pub mod config;
+pub mod container;
 pub mod help;
 pub mod output;
 pub mod parser;
@@ -13,6 +14,7 @@ pub use config::{
     ArgConfig, ArgType, Config, ConfigError, SubcommandConfig, MAX_SCHEMA_VERSION,
     MIN_SCHEMA_VERSION,
 };
+pub use container::{detect_container, detect_container_with, ContainerSignal};
 pub use help::{generate_help, generate_version};
 pub use output::{
     generate_error_output, generate_error_string, generate_help_output,
