@@ -123,8 +123,9 @@ fn main() -> Result<()> {
             // inside a container.  Help, Version, and Error outcomes pass through unchanged.
             if matches!(parse_outcome, ParseOutcome::Success(_)) {
                 if let Some(ref container) = cfg.container {
-                    let marker_root =
-                        container_marker_root.as_deref().unwrap_or(std::path::Path::new("/"));
+                    let marker_root = container_marker_root
+                        .as_deref()
+                        .unwrap_or(std::path::Path::new("/"));
                     let detected_signal =
                         detect_container_with(marker_root, |name| std::env::var(name).ok());
 
