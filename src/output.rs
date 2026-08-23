@@ -284,7 +284,6 @@ fn shell_quote(value: &str) -> String {
 /// 3. Re-execs the script inside the container with the required volume mounts
 /// 4. Forwards prefix-matching and explicitly-named environment variables
 pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Config) -> String {
-    use crate::config::PullPolicy;
     use std::collections::HashSet;
 
     let rt = &container.runtime;
@@ -301,13 +300,8 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Co
     s.push_str("set -x\n");
     s.push_str(&format!("exec {rt} run --rm \\\n"));
 
-    // Emit --pull flag based on PullPolicy (nested under container)
-    let pull_value = match &container.pull_policy {
-        PullPolicy::Always => "always",
-        PullPolicy::Never => "never",
-        PullPolicy::IfNotPresent => "missing",
-    };
-    s.push_str(&format!("  --pull={pull_value} \\\n"));
+    // Emit --pull flag — enum Display yields the verbatim runtime value
+    s.push_str(&format!("  --pull={} \\\n", container.pull_policy));
 
     s.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
     s.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
@@ -1080,11 +1074,11 @@ mod tests {
     }
 
     #[test]
-    fn test_container_reexec_pull_policy_ifnotpresent_docker() {
+    fn test_container_reexec_pull_policy_missing_docker() {
         use crate::config::Config;
 
         let config = Config::from_json(
-            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "ifnotpresent"}}"#,
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "missing"}}"#,
         )
         .unwrap();
         let container = config.container.as_ref().unwrap();
@@ -1128,11 +1122,11 @@ mod tests {
     }
 
     #[test]
-    fn test_container_reexec_pull_policy_ifnotpresent_podman() {
+    fn test_container_reexec_pull_policy_missing_podman() {
         use crate::config::Config;
 
         let config = Config::from_json(
-            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "podman", "image": "fedora:39", "pull_policy": "ifnotpresent"}}"#,
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "podman", "image": "fedora:39", "pull_policy": "missing"}}"#,
         )
         .unwrap();
         let container = config.container.as_ref().unwrap();
@@ -1144,10 +1138,10 @@ mod tests {
     }
 
     #[test]
-    fn test_container_reexec_default_pull_policy_is_ifnotpresent() {
+    fn test_container_reexec_default_pull_policy_is_missing() {
         use crate::config::Config;
 
-        // No pull_policy specified in container, should default to IfNotPresent
+        // No pull_policy specified in container — should default to Missing
         let config = Config::from_json(
             r#"{"schema_version": 2, "name": "test", "container": {"runtime": "docker", "image": "alpine:3"}}"#,
         )
@@ -1156,7 +1150,7 @@ mod tests {
 
         let output = generate_container_reexec_string(container, &config);
 
-        // Should contain --pull=missing (the mapped value for IfNotPresent) immediately after --rm
+        // Should contain --pull=missing (the verbatim string for PullPolicy::Missing) immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));
     }
 }
