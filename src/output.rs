@@ -301,8 +301,8 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Co
     s.push_str("set -x\n");
     s.push_str(&format!("exec {rt} run --rm \\\n"));
 
-    // Emit --pull flag based on PullPolicy
-    let pull_value = match config.pull_policy {
+    // Emit --pull flag based on PullPolicy (nested under container)
+    let pull_value = match &container.pull_policy {
         PullPolicy::Always => "always",
         PullPolicy::Never => "never",
         PullPolicy::IfNotPresent => "missing",
@@ -376,99 +376,8 @@ fn write_temp_file(content: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
-/// Generate the shell fragment that re-execs the calling script inside a container.
-///
-/// Emits a script that:
-/// 1. Resolves the calling script and shclap binary paths
-/// 2. Checks the container runtime is available
-/// 3. Re-execs the script inside the container with the required volume mounts
-/// 4. Forwards prefix-matching and explicitly-named environment variables
-pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Config) -> String {
-    use crate::config::PullPolicy;
-    use std::collections::HashSet;
-
-    let rt = &container.runtime;
-    let mut s = String::new();
-    s.push_str("_shclap_script=$(readlink -f \"$0\")\n");
-    s.push_str("_shclap_bin=$(readlink -f \"$(command -v shclap)\")\n");
-    s.push_str(&format!(
-        "command -v {rt} >/dev/null 2>&1 || {{ echo \"shclap: container runtime '{rt}' not found\" >&2; exit 127; }}\n"
-    ));
-    s.push_str(&format!(
-        "echo \"shclap: bootstrapping into {rt}:{image}\" >&2\n",
-        image = container.image
-    ));
-    s.push_str("set -x\n");
-    s.push_str(&format!("exec {rt} run --rm \\\n"));
-
-    // Emit --pull flag based on PullPolicy
-    let pull_value = match config.pull_policy {
-        PullPolicy::Always => "always",
-        PullPolicy::Never => "never",
-        PullPolicy::IfNotPresent => "missing",
-    };
-    s.push_str(&format!("  --pull={pull_value} \\\n"));
-
-    s.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
-    s.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
-    s.push_str("  -e SHCLAP_IN_CONTAINER=1 \\\n");
-
-    // Collect environment variable names to forward
-    let mut forwarded_vars: HashSet<String> = HashSet::new();
-
-    // Step 1: Collect prefix-matching environment variables
-    let prefix = config.effective_prefix();
-    for (name, _) in env::vars() {
-        if name.starts_with(prefix) {
-            forwarded_vars.insert(name);
-        }
-    }
-
-    // Step 2: Collect explicit env names from args
-    fn collect_env_vars(args: &[ArgConfig], config: &Config, forwarded_vars: &mut HashSet<String>) {
-        for arg in args {
-            if let Some(var_name) =
-                arg.effective_env(config.effective_prefix(), config.schema_version)
-            {
-                forwarded_vars.insert(var_name);
-            }
-        }
-    }
-
-    collect_env_vars(&config.args, config, &mut forwarded_vars);
-
-    // Also collect from subcommands
-    for subcmd in &config.subcommands {
-        collect_env_vars(&subcmd.args, config, &mut forwarded_vars);
-    }
-
-    // Step 3: Emit the -e lines in sorted order for deterministic output
-    let mut sorted_vars: Vec<_> = forwarded_vars.into_iter().collect();
-    sorted_vars.sort();
-    for var_name in sorted_vars {
-        s.push_str(&format!("  -e {var_name} \\\n"));
-    }
-
-    // Quoted, not interpolated raw: these values come from the config file and
-    // are emitted into a file the caller sources.
-    for arg in &container.args {
-        s.push_str(&format!("  {} \\\n", shell_quote(arg)));
-    }
-    s.push_str(&format!("  {} \\\n", shell_quote(&container.image)));
-    s.push_str("  bash \"$_shclap_script\" \"$@\"\n");
-    s
-}
-
-/// Write the container re-exec shell fragment to a temp file and return the path.
-pub fn generate_container_reexec_output(
-    container: &ContainerConfig,
-    config: &Config,
-) -> Result<PathBuf> {
-    let content = generate_container_reexec_string(container, config);
-    write_temp_file(&content)
-}
-
 #[cfg(test)]
+#[allow(clippy::needless_update)]
 mod tests {
     use super::*;
 
@@ -839,6 +748,7 @@ mod tests {
             runtime: "docker".to_string(),
             image: "ubuntu:22.04".to_string(),
             args: vec![],
+            ..Default::default()
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
@@ -867,6 +777,7 @@ mod tests {
             runtime: "podman".to_string(),
             image: "fedora:39".to_string(),
             args: vec!["-v".to_string(), "/host:/container:ro".to_string()],
+            ..Default::default()
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
@@ -889,6 +800,7 @@ mod tests {
             runtime: "docker".to_string(),
             image: "ubuntu:24.04".to_string(),
             args: vec!["--label".to_string(), "my label".to_string()],
+            ..Default::default()
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
@@ -911,6 +823,7 @@ mod tests {
                 "$(id)".to_string(),
                 "*".to_string(),
             ],
+            ..Default::default()
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
@@ -930,6 +843,7 @@ mod tests {
             runtime: "docker".to_string(),
             image: "ubuntu:24.04".to_string(),
             args: vec!["it's".to_string()],
+            ..Default::default()
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
@@ -951,6 +865,7 @@ mod tests {
                 "-v".to_string(),
                 "/host:/container:ro".to_string(),
             ],
+            ..Default::default()
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
@@ -970,6 +885,7 @@ mod tests {
             runtime: "docker".to_string(),
             image: "ubuntu:24.04 ; id".to_string(),
             args: vec![],
+            ..Default::default()
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
@@ -1009,6 +925,7 @@ mod tests {
             runtime: "docker".to_string(),
             image: "alpine:3".to_string(),
             args: vec![],
+            ..Default::default()
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
@@ -1028,6 +945,7 @@ mod tests {
             runtime: "docker".to_string(),
             image: "ubuntu:22.04".to_string(),
             args: vec![],
+            ..Default::default()
         };
         let config =
             Config::from_json(r#"{"schema_version": 2, "name": "test", "prefix": "MYAPP_"}"#)
@@ -1060,6 +978,7 @@ mod tests {
             runtime: "docker".to_string(),
             image: "ubuntu:22.04".to_string(),
             args: vec![],
+            ..Default::default()
         };
 
         let config_json = r#"{
@@ -1096,6 +1015,7 @@ mod tests {
             runtime: "docker".to_string(),
             image: "ubuntu:22.04".to_string(),
             args: vec![],
+            ..Default::default()
         };
 
         let config_json = r#"{
@@ -1129,17 +1049,15 @@ mod tests {
     // Tests for --pull flag support
     #[test]
     fn test_container_reexec_pull_policy_always_docker() {
-        use crate::config::{Config, ContainerConfig, PullPolicy};
+        use crate::config::Config;
 
-        let container = ContainerConfig {
-            runtime: "docker".to_string(),
-            image: "ubuntu:22.04".to_string(),
-            args: vec![],
-        };
-        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "always"}"#;
-        let config = Config::from_json(config_json).unwrap();
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "always"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(container, &config);
 
         // Should contain --pull=always immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=always \\"));
@@ -1147,17 +1065,15 @@ mod tests {
 
     #[test]
     fn test_container_reexec_pull_policy_never_docker() {
-        use crate::config::{Config, ContainerConfig, PullPolicy};
+        use crate::config::Config;
 
-        let container = ContainerConfig {
-            runtime: "docker".to_string(),
-            image: "ubuntu:22.04".to_string(),
-            args: vec![],
-        };
-        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "never"}"#;
-        let config = Config::from_json(config_json).unwrap();
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "never"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(container, &config);
 
         // Should contain --pull=never immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=never \\"));
@@ -1165,17 +1081,15 @@ mod tests {
 
     #[test]
     fn test_container_reexec_pull_policy_ifnotpresent_docker() {
-        use crate::config::{Config, ContainerConfig, PullPolicy};
+        use crate::config::Config;
 
-        let container = ContainerConfig {
-            runtime: "docker".to_string(),
-            image: "ubuntu:22.04".to_string(),
-            args: vec![],
-        };
-        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "ifnotpresent"}"#;
-        let config = Config::from_json(config_json).unwrap();
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "ifnotpresent"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(container, &config);
 
         // Should contain --pull=missing immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));
@@ -1183,17 +1097,15 @@ mod tests {
 
     #[test]
     fn test_container_reexec_pull_policy_always_podman() {
-        use crate::config::{Config, ContainerConfig, PullPolicy};
+        use crate::config::Config;
 
-        let container = ContainerConfig {
-            runtime: "podman".to_string(),
-            image: "fedora:39".to_string(),
-            args: vec![],
-        };
-        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "always"}"#;
-        let config = Config::from_json(config_json).unwrap();
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "podman", "image": "fedora:39", "pull_policy": "always"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(container, &config);
 
         // Should contain --pull=always immediately after --rm
         assert!(output.contains("exec podman run --rm \\\n  --pull=always \\"));
@@ -1201,17 +1113,15 @@ mod tests {
 
     #[test]
     fn test_container_reexec_pull_policy_never_podman() {
-        use crate::config::{Config, ContainerConfig, PullPolicy};
+        use crate::config::Config;
 
-        let container = ContainerConfig {
-            runtime: "podman".to_string(),
-            image: "fedora:39".to_string(),
-            args: vec![],
-        };
-        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "never"}"#;
-        let config = Config::from_json(config_json).unwrap();
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "podman", "image": "fedora:39", "pull_policy": "never"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(container, &config);
 
         // Should contain --pull=never immediately after --rm
         assert!(output.contains("exec podman run --rm \\\n  --pull=never \\"));
@@ -1219,17 +1129,15 @@ mod tests {
 
     #[test]
     fn test_container_reexec_pull_policy_ifnotpresent_podman() {
-        use crate::config::{Config, ContainerConfig, PullPolicy};
+        use crate::config::Config;
 
-        let container = ContainerConfig {
-            runtime: "podman".to_string(),
-            image: "fedora:39".to_string(),
-            args: vec![],
-        };
-        let config_json = r#"{"schema_version": 2, "name": "test", "pull_policy": "ifnotpresent"}"#;
-        let config = Config::from_json(config_json).unwrap();
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "podman", "image": "fedora:39", "pull_policy": "ifnotpresent"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(container, &config);
 
         // Should contain --pull=missing immediately after --rm
         assert!(output.contains("exec podman run --rm \\\n  --pull=missing \\"));
@@ -1237,18 +1145,16 @@ mod tests {
 
     #[test]
     fn test_container_reexec_default_pull_policy_is_ifnotpresent() {
-        use crate::config::{Config, ContainerConfig};
+        use crate::config::Config;
 
-        let container = ContainerConfig {
-            runtime: "docker".to_string(),
-            image: "alpine:3".to_string(),
-            args: vec![],
-        };
-        // No pull_policy specified, should default to IfNotPresent
-        let config_json = r#"{"schema_version": 2, "name": "test"}"#;
-        let config = Config::from_json(config_json).unwrap();
+        // No pull_policy specified in container, should default to IfNotPresent
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "docker", "image": "alpine:3"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(container, &config);
 
         // Should contain --pull=missing (the mapped value for IfNotPresent) immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));

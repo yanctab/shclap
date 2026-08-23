@@ -269,14 +269,12 @@ mod tests {
                 prefix,
                 container_marker_root,
                 args,
-                container_marker_root,
             } => {
                 assert_eq!(config, r#"{"name":"test"}"#);
                 assert!(name.is_none());
                 assert!(prefix.is_none());
                 assert!(container_marker_root.is_none());
                 assert!(args.is_empty());
-                assert!(container_marker_root.is_none());
             }
             _ => panic!("Expected Parse command"),
         }
