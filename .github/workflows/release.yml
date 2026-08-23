@@ -23,8 +23,11 @@ jobs:
       - name: Install musl tools
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
       - name: Install cargo-deb
-        run: cargo install cargo-deb --version "^2"
+        run: cargo binstall cargo-deb --no-confirm
 
       - name: Cache cargo registry and target
         uses: actions/cache@v4
