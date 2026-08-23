@@ -7,7 +7,6 @@ use shclap::{
     generate_help_output, generate_output, generate_print, generate_version,
     generate_version_output, parse_args, Config, ContainerSignal, ParseOutcome,
 };
-use std::path::Path;
 
 /// Clap-style argument parsing for shell scripts.
 #[derive(Parser, Debug)]
@@ -117,46 +116,49 @@ fn main() -> Result<()> {
 
             let effective_prefix = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
 
-            // Detect if we're running inside a container
-            let marker_root = container_marker_root.as_deref().unwrap_or(std::path::Path::new("/"));
-            let env_lookup = |name: &str| std::env::var(name).ok();
-            let container_signal = detect_container_with(marker_root, env_lookup);
+            // Parse args first so that --help / --version outcomes bypass container dispatch.
+            let parse_outcome = parse_args(&cfg, &args, effective_name);
 
-            // Emit stderr message for detected signals (except SHCLAP_IN_CONTAINER)
-            if let Some(signal) = container_signal {
-                match signal {
-                    ContainerSignal::ShclapInContainer => {
-                        // Silent skip - this is intentional
-                    }
-                    ContainerSignal::DockerEnv => {
-                        eprintln!("shclap: already inside container (via /.dockerenv) — skipping bootstrap");
-                    }
-                    ContainerSignal::ContainerEnv => {
-                        eprintln!("shclap: already inside container (via /run/.containerenv) — skipping bootstrap");
-                    }
-                    ContainerSignal::OciContainerEnv => {
-                        eprintln!("shclap: already inside container (via $container) — skipping bootstrap");
+            // Container dispatch: only reexec on a real Success outcome when we are NOT already
+            // inside a container.  Help, Version, and Error outcomes pass through unchanged.
+            if matches!(parse_outcome, ParseOutcome::Success(_)) {
+                if let Some(ref container) = cfg.container {
+                    let marker_root =
+                        container_marker_root.as_deref().unwrap_or(std::path::Path::new("/"));
+                    let detected_signal =
+                        detect_container_with(marker_root, |name| std::env::var(name).ok());
+
+                    match detected_signal {
+                        Some(ContainerSignal::ShclapInContainer) => {
+                            // Already in a shclap-managed container — bypass silently.
+                        }
+                        Some(signal) => {
+                            // Generic container signal — emit one diagnostic line and bypass.
+                            eprintln!(
+                                "shclap: container detected via {}, skipping reexec",
+                                signal.signal_name()
+                            );
+                        }
+                        None => {
+                            // Not inside any container — reexec into the configured one.
+                            let path = generate_container_reexec_output(container, &cfg)
+                                .context("failed to generate container reexec output file")?;
+                            println!("{}", path.display());
+                            return Ok(());
+                        }
                     }
                 }
             }
 
             // Handle parse result
-            match parse_args(&cfg, &args, effective_name) {
+            match parse_outcome {
                 ParseOutcome::Success(result) => {
-                    // Decide whether to emit reexec or normal output
-                    let path = if container_signal.is_none() && cfg.container.is_some() {
-                        // No signal detected and container config exists: emit reexec
-                        generate_container_reexec_output(cfg.container.as_ref().unwrap(), &cfg)
-                            .context("failed to generate container reexec output file")?
-                    } else {
-                        // Signal detected or no container config: emit normal output
-                        generate_output(
-                            &result.values,
-                            effective_prefix,
-                            result.subcommand.as_deref(),
-                        )
-                        .context("failed to generate output file")?
-                    };
+                    let path = generate_output(
+                        &result.values,
+                        effective_prefix,
+                        result.subcommand.as_deref(),
+                    )
+                    .context("failed to generate output file")?;
                     println!("{}", path.display());
                 }
                 ParseOutcome::Help(help_text) => {
@@ -269,14 +271,12 @@ mod tests {
                 prefix,
                 container_marker_root,
                 args,
-                container_marker_root,
             } => {
                 assert_eq!(config, r#"{"name":"test"}"#);
                 assert!(name.is_none());
                 assert!(prefix.is_none());
                 assert!(container_marker_root.is_none());
                 assert!(args.is_empty());
-                assert!(container_marker_root.is_none());
             }
             _ => panic!("Expected Parse command"),
         }
