@@ -281,7 +281,13 @@ esac
 
 ### Container Bootstrap
 
-Container bootstrap enables scripts to automatically re-execute themselves inside a container. When configured, shclap emits code that detects whether the script is already running in a container (via the `SHCLAP_IN_CONTAINER` environment variable), and if not, re-execs the script inside the specified container image using `docker` or `podman`.
+Container bootstrap enables scripts to automatically re-execute themselves inside a container. When configured, shclap emits code that detects whether the script is already running in a container and, if not, re-execs the script inside the specified container image using `docker` or `podman`.
+
+**Constraints:**
+
+- Schema v2 only; not supported in v1.
+- The `container` block is not valid inside a subcommand definition; it is a top-level feature only.
+- The `shclap help`, `shclap version`, and `shclap print` subcommands never trigger container dispatch. When `--help` or `--version` is passed to the script, container dispatch is also bypassed.
 
 **Example configuration:**
 
@@ -291,20 +297,85 @@ Container bootstrap enables scripts to automatically re-execute themselves insid
   "name": "myscript",
   "container": {
     "runtime": "docker",
-    "image": "ubuntu:latest",
+    "image": "ubuntu:22.04",
+    "pull_policy": "missing",
     "args": ["--network", "host"]
   },
   "args": [...]
 }
 ```
 
-**Key notes:**
+See [Container Bootstrap](container.md) for complete documentation and examples.
 
-- Schema v2 only; not supported in v1
-- Not valid inside subcommands; container is a top-level feature
-- `SHCLAP_IN_CONTAINER=1` environment variable marks container re-execution
-- `pull_policy` field controls when container images are pulled from registries; see [Container Bootstrap](container.md) for details
-- See [Container Bootstrap](container.md) for complete documentation and examples
+#### Pull Policy
+
+The `pull_policy` sub-field of `container` controls when the image is fetched from a registry:
+
+| Value | Behaviour |
+|-------|-----------|
+| `"always"` | Always pull from the registry, even if a local copy exists. |
+| `"missing"` | Pull only if no local copy is present. **Default.** |
+| `"never"` | Never pull; use only the locally cached image. |
+
+`pull_policy` **must** be nested under `container`. Placing it at the top level of the configuration is a validation error. Any value other than `"always"`, `"missing"`, or `"never"` is rejected at parse time.
+
+The value is passed to the runtime as `--pull=<value>` without translation; both Docker (≥ 20.10) and Podman accept all three values.
+
+#### Container Detection Signals
+
+shclap checks four signals in priority order to determine whether re-execution should be skipped:
+
+| Priority | Signal | Bypass output |
+|----------|--------|---------------|
+| 1 | `SHCLAP_IN_CONTAINER` (env var) | Silent — no stderr output |
+| 2 | `/.dockerenv` (file) | One line to stderr |
+| 3 | `/run/.containerenv` (file) | One line to stderr |
+| 4 | `$container` (env var) | One line to stderr |
+
+`SHCLAP_IN_CONTAINER` is set by shclap itself during bootstrap (`-e SHCLAP_IN_CONTAINER=1`). It is the authoritative marker that the script is running inside a shclap-managed container. Its detection is always silent.
+
+The other three signals are set by the host container runtime (Docker daemon, Podman, systemd-nspawn, CRI-O) before shclap runs. When detected, shclap prints one line to stderr and then proceeds to normal argument parsing:
+
+```
+shclap: container detected via <signal>, skipping reexec
+```
+
+#### Emitted Re-exec Contract
+
+When no detection signal is found, shclap emits a shell fragment with this shape:
+
+```sh
+_shclap_script=$(readlink -f "$0")
+_shclap_bin=$(readlink -f "$(command -v shclap)")
+command -v docker >/dev/null 2>&1 || { echo "shclap: container runtime 'docker' not found" >&2; exit 127; }
+echo "shclap: bootstrapping into docker:ubuntu:22.04" >&2
+set -x
+exec docker run --rm \
+  --pull=missing \
+  -v "$_shclap_script:$_shclap_script:ro" \
+  -v "$_shclap_bin:/usr/local/bin/shclap:ro" \
+  -e SHCLAP_IN_CONTAINER=1 \
+  [forwarded env vars as -e NAME ...] \
+  [container.args values ...] \
+  ubuntu:22.04 \
+  bash "$_shclap_script" "$@"
+```
+
+Key guarantees:
+
+- `--pull=<policy>` appears immediately after `--rm`; the value matches `pull_policy` verbatim.
+- If the runtime binary is not on `PATH`, the sourced file exits with code **127**.
+- All environment variables whose names start with the configured prefix are forwarded.
+- `container.args` values are emitted as individual shell words; metacharacter-containing values are single-quoted.
+- `exec` replaces the host process — there is no return from the container.
+
+#### Help, Version, and Print Bypass
+
+Container dispatch only fires on a successful parse outcome. The following always bypass container re-execution:
+
+- `--help` anywhere in the script arguments
+- `--version` anywhere in the script arguments (and `--help` is not present)
+- The `shclap help`, `shclap version`, and `shclap print` subcommands
 
 ### Output Format
 

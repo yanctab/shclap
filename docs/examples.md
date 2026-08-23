@@ -415,7 +415,7 @@ CONFIG='{
   "version": "1.0.0",
   "container": {
     "runtime": "docker",
-    "image": "ubuntu:latest",
+    "image": "ubuntu:22.04",
     "args": ["--network", "host"]
   },
   "args": [
@@ -452,6 +452,234 @@ Usage (script automatically re-execs in container):
 ```
 
 Note: The user just invokes the script normally. The automatic re-execution into the container happens transparently. Any code before the `source $(shclap parse ...)` line runs twice (once on the host, once in the container), so use the `SHCLAP_IN_CONTAINER` guard to prevent side effects.
+
+## Container Pull Policy Variants
+
+The `pull_policy` sub-field of `container` controls when the image is fetched from a registry. All three values are shown below. The field must be nested under `container`; placing it at the top level is a validation error.
+
+### always — always pull from the registry
+
+```bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "fresh-image",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:22.04",
+    "pull_policy": "always"
+  },
+  "args": [{"name": "verbose", "short": "v", "type": "flag"}]
+}'
+source $(shclap parse --config "$CONFIG" -- "$@")
+# docker run --pull=always ... ubuntu:22.04 ...
+```
+
+Use `"always"` in CI pipelines where you want to guarantee the latest image content regardless of local cache.
+
+### missing — pull only when not cached locally (default)
+
+```bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "cached-image",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:22.04",
+    "pull_policy": "missing"
+  },
+  "args": [{"name": "verbose", "short": "v", "type": "flag"}]
+}'
+source $(shclap parse --config "$CONFIG" -- "$@")
+# docker run --pull=missing ... ubuntu:22.04 ...
+```
+
+`"missing"` is the default when `pull_policy` is not specified. It balances freshness with performance.
+
+### never — never pull; use local cache only
+
+```bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "offline-image",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:22.04",
+    "pull_policy": "never"
+  },
+  "args": [{"name": "verbose", "short": "v", "type": "flag"}]
+}'
+source $(shclap parse --config "$CONFIG" -- "$@")
+# docker run --pull=never ... ubuntu:22.04 ...
+```
+
+Use `"never"` in air-gapped environments or when you want a hard guarantee that no network call is made.
+
+## Podman Runtime
+
+Replace `"runtime": "docker"` with `"runtime": "podman"` to use Podman:
+
+```bash
+#!/bin/bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "podman-script",
+  "description": "Script that bootstraps into a Podman container",
+  "container": {
+    "runtime": "podman",
+    "image": "registry.fedoraproject.org/fedora:39",
+    "pull_policy": "missing",
+    "args": ["--userns=keep-id"]
+  },
+  "args": [
+    {"name": "output", "short": "o", "type": "option", "required": true},
+    {"name": "verbose", "short": "v", "type": "flag"}
+  ]
+}'
+
+if [[ -z "${SHCLAP_IN_CONTAINER:-}" ]]; then
+  echo "Host pass: checking prerequisites..."
+fi
+
+source $(shclap parse --config "$CONFIG" -- "$@")
+
+echo "Inside Podman container"
+echo "Output: $SHCLAP_OUTPUT"
+```
+
+Usage:
+
+```bash
+./podman-script.sh -o result.txt
+./podman-script.sh -v -o result.txt
+```
+
+Both Docker and Podman accept `always`, `missing`, and `never` as `--pull` values, so the same `pull_policy` field works for either runtime.
+
+## Environment Variable Forwarding
+
+When container bootstrap re-execs into the container, shclap automatically forwards environment variables in two ways:
+
+1. **Prefix matching**: any env var whose name starts with the configured prefix (default `SHCLAP_`) is forwarded.
+2. **Explicit `env` fields**: any variable named via an argument's `env` field is forwarded.
+
+```bash
+#!/bin/bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "api-container",
+  "prefix": "API_",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:22.04"
+  },
+  "args": [
+    {"name": "endpoint", "type": "positional", "required": true},
+    {"name": "token", "long": "token", "type": "option", "env": "LEGACY_API_TOKEN"}
+  ]
+}'
+source $(shclap parse --config "$CONFIG" -- "$@")
+
+curl -H "Authorization: Bearer $LEGACY_API_TOKEN" "https://$API_ENDPOINT"
+```
+
+With the above config, any environment variable starting with `API_` that is set on the host is forwarded into the container via `-e API_*`. The `LEGACY_API_TOKEN` variable is also forwarded because it is named explicitly via the `env` field.
+
+```bash
+export API_BASE_URL="https://api.example.com"
+export LEGACY_API_TOKEN="secret-token"
+./api-container.sh /v1/users
+# Inside the container: both API_BASE_URL and LEGACY_API_TOKEN are available
+```
+
+## Args With Spaces and Metacharacters
+
+Values in `container.args` that contain shell metacharacters (spaces, semicolons, `$`, backticks, wildcards, etc.) are automatically single-quoted in the generated shell fragment so they are passed as single arguments to the runtime.
+
+```bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "labeled-container",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:22.04",
+    "args": [
+      "--label", "team=platform ops",
+      "--label=env=prod;tier=backend",
+      "--network", "host"
+    ]
+  },
+  "args": [{"name": "verbose", "short": "v", "type": "flag"}]
+}'
+source $(shclap parse --config "$CONFIG" -- "$@")
+```
+
+The generated invocation wraps unsafe values in single quotes:
+
+```sh
+exec docker run --rm \
+  --pull=missing \
+  ... \
+  --label \
+  'team=platform ops' \
+  '--label=env=prod;tier=backend' \
+  --network \
+  host \
+  ubuntu:22.04 \
+  bash "$_shclap_script" "$@"
+```
+
+Values that contain only alphanumerics and safe punctuation (`-_./:=@%+,`) are passed through unquoted for readability.
+
+## Running an Already-Containerised Script
+
+If the script is invoked from inside a container that was not started by shclap (for example, a CI runner or a dev shell), shclap detects this and skips re-execution:
+
+```bash
+# Inside a CI Docker container:
+./myscript.sh --output=result.txt
+# shclap prints to stderr: "shclap: container detected via /.dockerenv, skipping reexec"
+# then proceeds with normal argument parsing
+```
+
+The detection order is:
+
+1. `SHCLAP_IN_CONTAINER` (silent bypass — set by shclap itself)
+2. `/.dockerenv` (verbose bypass — set by Docker daemon)
+3. `/run/.containerenv` (verbose bypass — set by Podman/CRI-O)
+4. `$container` (verbose bypass — set by Podman/systemd-nspawn)
+
+This means the same script runs correctly whether invoked from a host machine or from inside an existing container. No configuration change is needed.
+
+## --help and --version Interaction with Container Dispatch
+
+Container dispatch is bypassed when `--help` or `--version` is detected in the script arguments. The help or version output is returned from the host without starting the container:
+
+```bash
+#!/bin/bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "myapp",
+  "version": "1.0.0",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:22.04"
+  },
+  "args": [
+    {"name": "verbose", "short": "v", "type": "flag", "help": "Enable verbose output"},
+    {"name": "input", "type": "positional", "required": true, "help": "Input file"}
+  ]
+}'
+source $(shclap parse --config "$CONFIG" -- "$@")
+echo "Processing: $SHCLAP_INPUT"
+```
+
+```bash
+./myapp.sh --help      # Prints help text directly, no container started
+./myapp.sh --version   # Prints "myapp 1.0.0", no container started
+./myapp.sh input.txt   # Triggers container re-exec, then processes inside container
+```
+
+The `shclap help`, `shclap version`, and `shclap print` CLI subcommands also never perform container dispatch.
 
 ## See Also
 

@@ -146,9 +146,6 @@ Environment variable prefix. Optional. Default: "SHCLAP_"
 .TP
 .B args
 Array of argument definitions. Optional.
-.TP
-.B pull_policy
-Container image pull policy. Accepted values: \fBalways\fR, \fBnever\fR, \fBif-not-present\fR. Default: \fBif-not-present\fR.
 .SS "Argument Fields"
 .TP
 .B name
@@ -245,6 +242,21 @@ Use the Podman runtime.
 .TP
 .B image
 Fully-qualified image reference (required). Example: registry.example.com/img:tag
+.TP
+.B pull_policy
+When to pull the container image. Must be nested under the \fBcontainer\fR block.
+Accepted values: \fBalways\fR | \fBmissing\fR | \fBnever\fR. Default: \fBmissing\fR.
+.RS
+.TP
+.B always
+Always pull from the registry, even if a local copy exists.
+.TP
+.B missing
+Pull only if no local copy is present (default).
+.TP
+.B never
+Never pull; fail if the image is not cached locally.
+.RE
 .TP
 .B args
 Array of extra flags to pass to the runtime. Example: ["--network", "host"]

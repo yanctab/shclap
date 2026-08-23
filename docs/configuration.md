@@ -19,13 +19,13 @@ shclap uses JSON configuration to define your CLI interface. This document cover
 
 ## Container Fields (v2 Only)
 
-The `container` object enables automatic re-execution of scripts inside a container. All fields are sub-fields of the `container` object:
+The `container` object enables automatic re-execution of scripts inside a container. All fields are sub-fields of the `container` object. `pull_policy` must be placed here — specifying it at the top level of the configuration is a validation error.
 
 | Sub-field | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `runtime` | string | Yes | Container runtime: `"docker"` or `"podman"` |
 | `image` | string | Yes | Fully-qualified image reference, e.g. `registry.example.com/img:tag` |
-| `pull_policy` | string | No | Container image pull policy: `"always"`, `"never"`, `"if-not-present"` (default). See [Container](container.md). |
+| `pull_policy` | string | No | When to pull the image: `"always"`, `"missing"`, or `"never"`. Default: `"missing"`. See [Container](container.md). |
 | `args` | array of strings | No | Extra flags passed to `<runtime> run` before the image name. Each value is emitted as a single shell word (quoted when needed), so values may contain spaces. |
 
 See [Container Bootstrap](container.md) for detailed documentation.

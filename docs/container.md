@@ -2,101 +2,141 @@
 
 ## Overview
 
-Container bootstrap is a shclap feature that enables scripts to automatically re-execute themselves inside a container using `docker` or `podman`. When configured, shclap emits code on the host that detects whether it's already running in a container, and if not, re-execs the script inside the specified container image. This allows you to author portable scripts that transparently run their logic in a containerized environment.
+Container bootstrap is a shclap feature that enables scripts to automatically re-execute themselves inside a container using `docker` or `podman`. When configured, shclap emits code on the host that detects whether it is already running in a container, and if not, re-execs the script inside the specified container image.
 
-## Configuration
+**Constraints:**
 
-The `container` node is a top-level configuration object in schema v2 that specifies container runtime parameters. When present, shclap generates a re-exec wrapper at the top of your sourced output.
+- Requires `schema_version: 2`. The feature is not available in v1.
+- The `container` block must be at the top level of the configuration. It is not permitted inside a subcommand definition.
+- The `shclap parse` command is the only subcommand that triggers container dispatch. The `help`, `version`, and `print` subcommands never perform re-execution.
 
-```json
-{
-  "schema_version": 2,
-  "name": "myscript",
-  "container": {
-    "runtime": "docker",
-    "image": "artifactory.example.com/team/img:v1.2.3",
-    "args": ["--network", "host"]
-  },
-  "args": [
-    {"name": "verbose", "short": "v", "type": "flag"},
-    {"name": "output", "short": "o", "type": "option"}
-  ]
-}
+## Bootstrap Flow
+
+When `shclap parse` is called on a configuration that has a `container` block:
+
+1. Arguments are parsed first (including `--help` and `--version`).
+2. If the parse outcome is `--help` or `--version`, the help/version output is returned immediately and container dispatch is **skipped**.
+3. Otherwise, shclap checks the container detection signals (see below).
+4. If any signal is detected, re-execution is **skipped** and normal argument parsing output is returned.
+5. If no signal is detected, shclap emits a shell fragment that re-execs the script inside the configured container.
+
+## Container Detection Signals
+
+shclap checks four signals in priority order. The first match wins.
+
+| Priority | Signal | Type | Bypass behaviour |
+|----------|--------|------|-----------------|
+| 1 | `SHCLAP_IN_CONTAINER` | Environment variable | Silent pass-through (no stderr output) |
+| 2 | `/.dockerenv` | Filesystem marker | Verbose pass-through (one line to stderr) |
+| 3 | `/run/.containerenv` | Filesystem marker | Verbose pass-through (one line to stderr) |
+| 4 | `$container` | Environment variable | Verbose pass-through (one line to stderr) |
+
+**Signal semantics:**
+
+- `SHCLAP_IN_CONTAINER` is set by shclap itself during bootstrap re-execution (`-e SHCLAP_IN_CONTAINER=1`). It is the authoritative signal that the script is running inside a shclap-managed container. Detection is silent — no diagnostic is printed.
+- `/.dockerenv` is created by the Docker daemon inside every Docker container.
+- `/run/.containerenv` is created by Podman, CRI-O, and systemd-nspawn inside containers.
+- `$container` is set by Podman, systemd-nspawn, and similar runtimes.
+
+When a non-`SHCLAP_IN_CONTAINER` signal is detected, shclap prints one diagnostic line to stderr:
+
+```
+shclap: container detected via <signal>, skipping reexec
 ```
 
-See [Configuration Reference](configuration.md) for the `container` field specification.
+where `<signal>` is one of `/.dockerenv`, `/run/.containerenv`, or `$container`.
 
-## Container Image Pull Policy
+## Re-exec Contract
 
-The `pull_policy` field controls when container images are pulled from a registry. This is useful for controlling whether shclap always fetches the latest version of an image, or reuses a locally cached image if available.
+When none of the detection signals are present, shclap writes a shell fragment to a temp file and prints the path. When the script sources that path, the following happens:
 
-**Valid values:**
+1. The script and shclap binary paths are resolved with `readlink -f`.
+2. The configured runtime is checked with `command -v`. If it is not on `PATH`, the sourced file prints an error and exits with code **127**.
+3. A diagnostic is printed to stderr: `shclap: bootstrapping into <runtime>:<image>`.
+4. `exec <runtime> run` replaces the host shell process with the container.
 
-- `"always"` — Always pull the image from the registry, even if a local copy exists. Ensures the latest version is used.
-- `"never"` — Never pull; use only a locally cached image. If the image is not present locally, the container fails to start.
-- `"if-not-present"` — (Default) Pull only if the image is not already cached locally. Balances freshness with performance.
-
-**Example with pull_policy:**
-
-```json
-{
-  "schema_version": 2,
-  "name": "myscript",
-  "container": {
-    "runtime": "docker",
-    "image": "artifactory.example.com/team/img:v1.2.3",
-    "pull_policy": "always",
-    "args": ["--network", "host"]
-  },
-  "args": [
-    {"name": "verbose", "short": "v", "type": "flag"},
-    {"name": "output", "short": "o", "type": "option"}
-  ]
-}
-```
-
-When `pull_policy` is set, shclap passes the `--pull` flag to the container runtime with the specified policy value. For example, `"pull_policy": "always"` emits `docker run --pull always ...` in the generated shell code.
-
-## Emitted Shell File
-
-When `container` is configured, shclap writes code before the normal argument parsing export statements. Here's an annotated example of what the emitted file contains:
+The exact shape of the emitted invocation:
 
 ```sh
-# Path to the running script (may be a symlink—readlink -f resolves it)
 _shclap_script=$(readlink -f "$0")
-
-# Path to the shclap binary itself
 _shclap_bin=$(readlink -f "$(command -v shclap)")
-
-# Check that the runtime is available
 command -v docker >/dev/null 2>&1 || { echo "shclap: container runtime 'docker' not found" >&2; exit 127; }
-
-# Replace the current shell with a docker container, mounting the script and shclap binary
+echo "shclap: bootstrapping into docker:ubuntu:22.04" >&2
+set -x
 exec docker run --rm \
+  --pull=missing \
   -v "$_shclap_script:$_shclap_script:ro" \
   -v "$_shclap_bin:/usr/local/bin/shclap:ro" \
   -e SHCLAP_IN_CONTAINER=1 \
-  -e SHCLAP_FOO=bar \
-  --network host \
-  artifactory.example.com/team/img:v1.2.3 \
+  [forwarded env vars as -e NAME ...] \
+  [container.args values ...] \
+  ubuntu:22.04 \
   bash "$_shclap_script" "$@"
 ```
 
 Key points:
-- **Script mounting**: The script itself and the shclap binary are mounted as read-only volumes.
-- **Environment marker**: `SHCLAP_IN_CONTAINER=1` is set inside the container to prevent re-execution loops.
-- **Argument passing**: `"$@"` passes all original script arguments to the container.
-- **Extra args**: Arguments from the `container.args` field (e.g., `--network host`) are inserted before the image name. Each value is emitted as one shell word and single-quoted when it contains anything the shell would act on, so a value such as `"my label"` reaches the runtime as a single argument rather than two.
-- **Exit replacement**: `exec` replaces the host shell process with the container, so the container becomes the script's process.
 
-## Re-Execution Semantics Warning
+- `--pull=<policy>` is emitted immediately after `--rm`. The value matches `container.pull_policy` verbatim (`always`, `missing`, or `never`).
+- The script and shclap binary are mounted read-only into the container.
+- `SHCLAP_IN_CONTAINER=1` is set so the container pass detects the bypass signal.
+- All environment variables whose names start with the configured prefix are forwarded.
+- All variables listed via `env` fields in the argument config are forwarded.
+- Values from `container.args` are emitted as individual shell words; values that contain shell metacharacters or whitespace are single-quoted.
+- The container receives the original `"$@"` arguments verbatim.
+- `exec` replaces the host shell process, so there is no return from the container.
 
-When container bootstrap is enabled, **code before the `source $(shclap parse ...)` line runs twice**:
+## Container Configuration Block
 
-1. **First execution (host):** The script runs on your local machine with the host's environment.
-2. **Second execution (container):** The script re-exececs inside the container with the container's environment.
+The `container` field is an object nested directly under the top-level config (v2 only):
 
-Side-effecting setup code (downloads, file creation, environment setup) must be guarded to run only once:
+```json
+{
+  "schema_version": 2,
+  "name": "myscript",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:22.04",
+    "pull_policy": "missing",
+    "args": ["--network", "host"]
+  },
+  "args": [
+    {"name": "verbose", "short": "v", "type": "flag"},
+    {"name": "output", "short": "o", "type": "option"}
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `runtime` | string | Yes | Container runtime: `"docker"` or `"podman"` |
+| `image` | string | Yes | Fully-qualified image reference, e.g. `registry.example.com/img:tag` |
+| `pull_policy` | string | No | When to pull the image: `"always"`, `"missing"`, or `"never"`. Default: `"missing"`. |
+| `args` | array of strings | No | Extra flags passed to `<runtime> run` before the image name. |
+
+### Pull Policy
+
+The `pull_policy` field controls when the container runtime fetches the image from a registry.
+
+| Value | Runtime flag emitted | Behaviour |
+|-------|---------------------|-----------|
+| `"always"` | `--pull=always` | Always pull from the registry, even if a local copy exists. |
+| `"missing"` | `--pull=missing` | Pull only if no local copy is present. **This is the default.** |
+| `"never"` | `--pull=never` | Never pull; fail if the image is not cached locally. |
+
+**The value is passed through to the runtime without translation.** Both Docker (≥ 20.10) and Podman accept `always`, `missing`, and `never` as `--pull` values.
+
+`pull_policy` **must** be nested under `container`. Specifying `pull_policy` at the top level of the configuration is a validation error.
+
+Any value other than `"always"`, `"missing"`, or `"never"` is rejected at parse time with an error naming the invalid value.
+
+## Re-Execution Semantics
+
+When container bootstrap is enabled, code **before** the `source $(shclap parse ...)` line runs twice:
+
+1. **First execution (host):** The script runs on the local machine with the host environment.
+2. **Second execution (container):** The script re-execs inside the container with the container environment.
+
+Use the `SHCLAP_IN_CONTAINER` guard to prevent side-effecting setup from running twice:
 
 ```bash
 #!/bin/bash
@@ -105,140 +145,47 @@ CONFIG='{
   "name": "myscript",
   "container": {
     "runtime": "docker",
-    "image": "ubuntu:latest"
+    "image": "ubuntu:22.04"
   },
-  "args": [...]
+  "args": [{"name": "verbose", "short": "v", "type": "flag"}]
 }'
 
-# This runs on the host only (first execution)
+# Runs on the host only (first pass)
 if [[ -z "${SHCLAP_IN_CONTAINER:-}" ]]; then
   echo "Preparing on the host..."
-  # Download, compile, setup, etc.
 fi
 
 source $(shclap parse --config "$CONFIG" -- "$@")
 
-# This runs inside the container
-echo "Running in container: $SHCLAP_VERBOSE"
+# Runs inside the container (second pass)
+echo "Inside container. Verbose: $SHCLAP_VERBOSE"
 ```
 
-The `SHCLAP_IN_CONTAINER` variable is set to `"1"` on the container re-execution, allowing you to conditionally guard host-only code.
+## Help and Version Bypass
+
+Passing `--help` or `--version` to the script does **not** trigger container re-execution. shclap parses those flags first and returns the help/version output directly from the host without entering the container.
+
+```bash
+./myscript.sh --help     # Returns help text, no container started
+./myscript.sh --version  # Returns version text, no container started
+./myscript.sh -v         # Triggers container re-exec (normal arguments)
+```
+
+The `shclap help`, `shclap version`, and `shclap print` subcommands also never perform container dispatch.
+
+## Already-Containerised Scripts
+
+If the script is invoked from within a container that was not started by shclap (for example, a CI container or a dev shell), shclap detects this via `/.dockerenv`, `/run/.containerenv`, or `$container` and skips re-execution. A diagnostic is printed to stderr, then normal argument parsing proceeds.
+
+This means the same script works correctly whether it is called from a host machine or from inside an existing container.
 
 ## Signal and Stdin Note
 
-When shclap's emitted code uses `exec docker run`, it replaces the host shell process. This has two important consequences:
+Because `exec docker run` (or `exec podman run`) replaces the host shell process, signals and I/O behave as follows:
 
-- **Signals:** Signals (SIGTERM, SIGINT, etc.) are delivered to the container process, not the host shell. The container handles them directly.
-- **Stdin/Stdout:** The script runs with the container as its process, so stdin/stdout/stderr are connected directly to the container.
-
-In practice, this means users can Ctrl+C the script as expected, and it cleanly terminates the container.
-
-## Multi-Subcommand Example
-
-Here's a complete example using subcommands where each subcommand runs inside the same container:
-
-```bash
-#!/bin/bash
-set -euo pipefail
-
-CONFIG='{
-  "schema_version": 2,
-  "name": "jm",
-  "description": "Job manager tool",
-  "version": "1.0.0",
-  "container": {
-    "runtime": "docker",
-    "image": "ubuntu:latest",
-    "args": ["--network", "host"]
-  },
-  "args": [
-    {"name": "verbose", "short": "v", "type": "flag", "help": "Verbose output"}
-  ],
-  "subcommands": [
-    {
-      "name": "list",
-      "help": "List all jobs",
-      "args": [
-        {"name": "status", "short": "s", "type": "option", "default": "all", "help": "Filter by status (all, running, failed)"}
-      ]
-    },
-    {
-      "name": "run",
-      "help": "Run a job",
-      "args": [
-        {"name": "job_name", "type": "positional", "required": true, "help": "Name of the job to run"},
-        {"name": "timeout", "short": "t", "type": "option", "value_type": "int", "default": "3600", "help": "Timeout in seconds"}
-      ]
-    },
-    {
-      "name": "stop",
-      "help": "Stop a running job",
-      "args": [
-        {"name": "job_id", "type": "positional", "required": true, "help": "ID of the job to stop"}
-      ]
-    }
-  ]
-}'
-
-# Only run setup on the host (first pass)
-if [[ -z "${SHCLAP_IN_CONTAINER:-}" ]]; then
-  echo "Verifying prerequisites..."
-  command -v docker >/dev/null || { echo "Error: docker not found"; exit 127; }
-fi
-
-source $(shclap parse --config "$CONFIG" -- "$@")
-
-# Utility function that respects verbose flag
-log() {
-  if [[ "$SHCLAP_VERBOSE" == "true" ]]; then
-    echo "[INFO] $*"
-  fi
-}
-
-case "$SHCLAP_SUBCOMMAND" in
-  list)
-    log "Listing jobs (status: $SHCLAP_STATUS)"
-    # In the container, query the job database
-    echo "Running jobs: job-001, job-002"
-    echo "Failed jobs: job-099"
-    ;;
-  run)
-    log "Running job: $SHCLAP_JOB_NAME (timeout: ${SHCLAP_TIMEOUT}s)"
-    # In the container, start the job
-    echo "Job $SHCLAP_JOB_NAME started"
-    sleep 2
-    echo "Job completed successfully"
-    ;;
-  stop)
-    log "Stopping job: $SHCLAP_JOB_ID"
-    # In the container, stop the job
-    echo "Job $SHCLAP_JOB_ID stopped"
-    ;;
-  *)
-    echo "Unknown subcommand: $SHCLAP_SUBCOMMAND"
-    exit 1
-    ;;
-esac
-```
-
-Usage:
-
-```bash
-# List all jobs (re-executes in container automatically)
-./jm.sh list
-
-# List running jobs only
-./jm.sh list -s running
-
-# Run a job with custom timeout
-./jm.sh run my-task -t 1800
-
-# Stop a job
-./jm.sh stop job-001
-
-# Enable verbose output for any subcommand
-./jm.sh -v list -s running
-```
+- **Signals:** SIGTERM and SIGINT are delivered directly to the container process.
+- **Stdin/stdout/stderr:** Connected to the container process. Interactive prompts (`read`, `less`) work as expected.
+- **Ctrl+C:** Terminates the container cleanly.
 
 ## See Also
 

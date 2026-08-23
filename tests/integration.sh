@@ -900,7 +900,7 @@ touch "$TMPDIR/.dockerenv"
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
 STDERR_FILE=$(mktemp)
 OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --container-marker-root "$TMPDIR" -- -v 2>"$STDERR_FILE")
-if [[ -n "$OUTPUT_FILE" ]] && grep -q "already inside container (via /.dockerenv)" "$STDERR_FILE"; then
+if [[ -n "$OUTPUT_FILE" ]] && grep -q "container detected via /.dockerenv, skipping reexec" "$STDERR_FILE"; then
     pass "/.dockerenv detected emits path and skip message"
 else
     fail "/.dockerenv detection" "Should detect /.dockerenv and emit skip message" "STDERR=$(cat $STDERR_FILE)"
@@ -1090,7 +1090,7 @@ rm -f "$OUTPUT_FILE"
 # Test: pull_policy always emits --pull=always
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
-CONTAINER_CONFIG='{"schema_version":2,"name":"test","pull_policy":"always","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[],"pull_policy":"always"}}'
 OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=always"; then
@@ -1103,7 +1103,7 @@ rm -f "$OUTPUT_FILE"
 # Test: pull_policy never emits --pull=never
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
-CONTAINER_CONFIG='{"schema_version":2,"name":"test","pull_policy":"never","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[],"pull_policy":"never"}}'
 OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=never"; then
@@ -1116,10 +1116,10 @@ rm -f "$OUTPUT_FILE"
 # Test: invalid pull_policy value produces deserialization error
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
-CONTAINER_CONFIG='{"schema_version":2,"name":"test","pull_policy":"bogus","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[],"pull_policy":"bogus"}}'
 OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT_FILE'" 2>&1) || true
-if echo "$ERROR_OUTPUT" | grep -q "pull policy" || echo "$ERROR_OUTPUT" | grep -q "unknown"; then
+if echo "$ERROR_OUTPUT" | grep -q "pull_policy" || echo "$ERROR_OUTPUT" | grep -q "unknown"; then
     pass "invalid pull_policy value produces error"
 else
     fail "invalid pull_policy" "output file should produce error when sourced" "$ERROR_OUTPUT"
@@ -1129,7 +1129,7 @@ rm -f "$OUTPUT_FILE"
 # Test: pull_policy works with podman runtime
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
-CONTAINER_CONFIG='{"schema_version":2,"name":"test","pull_policy":"always","container":{"runtime":"podman","image":"fedora:39","args":[]}}'
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"podman","image":"fedora:39","args":[],"pull_policy":"always"}}'
 OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q "exec podman run" && echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=always"; then
