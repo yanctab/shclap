@@ -1,6 +1,6 @@
 //! Temporary file generation with shell export statements and special outputs.
 
-use crate::config::{ArgType, Config};
+use crate::config::{ArgConfig, ArgType, Config, ContainerConfig};
 use crate::parser::ParsedValue;
 use anyhow::Result;
 use std::collections::HashMap;
@@ -255,14 +255,111 @@ pub fn generate_print(config: &Config, name: &str, prefix: &str) -> String {
     parts.join(" ")
 }
 
-/// Quote a value for shell if it contains special characters.
+/// Quote a value for safe use in generated shell code.
+///
+/// Uses an allowlist: a value passes through bare only when every character is
+/// inert to the shell. Anything else is single-quoted, so word splitting,
+/// globbing, and command substitution cannot happen when the generated file is
+/// sourced. A denylist is not enough here - `a;id` contains no whitespace and
+/// no quoting metacharacter, but still runs a command.
 fn shell_quote(value: &str) -> String {
-    if value.is_empty() || value.contains(|c: char| c.is_whitespace() || "\"'$`\\!".contains(c)) {
-        // Use single quotes, escaping any single quotes in the value
-        format!("'{}'", value.replace('\'', "'\\''"))
-    } else {
-        value.to_string()
+    fn is_shell_safe(c: char) -> bool {
+        c.is_ascii_alphanumeric() || "-_./:=@%+,".contains(c)
     }
+
+    if !value.is_empty() && value.chars().all(is_shell_safe) {
+        value.to_string()
+    } else {
+        // Single quotes suppress every expansion; the only character that needs
+        // care inside them is the single quote itself.
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+/// Generate the shell fragment that re-execs the calling script inside a container.
+///
+/// Emits a script that:
+/// 1. Resolves the calling script and shclap binary paths
+/// 2. Checks the container runtime is available
+/// 3. Re-execs the script inside the container with the required volume mounts
+/// 4. Forwards prefix-matching and explicitly-named environment variables
+pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Config) -> String {
+    use std::collections::HashSet;
+
+    let rt = &container.runtime;
+    let mut s = String::new();
+    s.push_str("_shclap_script=$(readlink -f \"$0\")\n");
+    s.push_str("_shclap_bin=$(readlink -f \"$(command -v shclap)\")\n");
+    s.push_str(&format!(
+        "command -v {rt} >/dev/null 2>&1 || {{ echo \"shclap: container runtime '{rt}' not found\" >&2; exit 127; }}\n"
+    ));
+    s.push_str(&format!(
+        "echo \"shclap: bootstrapping into {rt}:{image}\" >&2\n",
+        image = container.image
+    ));
+    s.push_str("set -x\n");
+    s.push_str(&format!("exec {rt} run --rm \\\n"));
+
+    // Emit --pull flag — enum Display yields the verbatim runtime value
+    s.push_str(&format!("  --pull={} \\\n", container.pull_policy));
+
+    s.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
+    s.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
+    s.push_str("  -e SHCLAP_IN_CONTAINER=1 \\\n");
+
+    // Collect environment variable names to forward
+    let mut forwarded_vars: HashSet<String> = HashSet::new();
+
+    // Step 1: Collect prefix-matching environment variables
+    let prefix = config.effective_prefix();
+    for (name, _) in env::vars() {
+        if name.starts_with(prefix) {
+            forwarded_vars.insert(name);
+        }
+    }
+
+    // Step 2: Collect explicit env names from args
+    fn collect_env_vars(args: &[ArgConfig], config: &Config, forwarded_vars: &mut HashSet<String>) {
+        for arg in args {
+            if let Some(var_name) =
+                arg.effective_env(config.effective_prefix(), config.schema_version)
+            {
+                forwarded_vars.insert(var_name);
+            }
+        }
+    }
+
+    collect_env_vars(&config.args, config, &mut forwarded_vars);
+
+    // Also collect from subcommands
+    for subcmd in &config.subcommands {
+        collect_env_vars(&subcmd.args, config, &mut forwarded_vars);
+    }
+
+    // Step 3: Emit the -e lines in sorted order for deterministic output
+    let mut sorted_vars: Vec<_> = forwarded_vars.into_iter().collect();
+    sorted_vars.sort();
+    for var_name in sorted_vars {
+        s.push_str(&format!("  -e {var_name} \\\n"));
+    }
+
+    // Quoted, not interpolated raw: these values come from the config file and
+    // are emitted into a file the caller sources.
+    for arg in &container.args {
+        s.push_str(&format!("  {} \\\n", shell_quote(arg)));
+    }
+    s.push_str(&format!("  {} \\\n", shell_quote(&container.image)));
+    s.push_str("  bash \"$_shclap_script\" \"$@\"\n");
+    s
+}
+
+/// Write the container re-exec shell fragment to a temp file and return the path.
+pub fn generate_container_reexec_output(
+    container: &ContainerConfig,
+    config: &Config,
+) -> Result<PathBuf> {
+    let content = generate_container_reexec_string(container, config);
+    write_temp_file(&content)
 }
 
 /// Write content to a temporary file and return its path.
@@ -274,6 +371,7 @@ fn write_temp_file(content: &str) -> Result<PathBuf> {
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_update)]
 mod tests {
     use super::*;
 
@@ -632,5 +730,427 @@ mod tests {
         env::remove_var("SPECIAL_PATH");
 
         assert!(result.contains("'path with spaces'"));
+    }
+
+    // Container reexec tests
+
+    #[test]
+    fn test_generate_container_reexec_string_no_extra_args() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Must start with canonical script / binary path resolution
+        assert!(output.contains("_shclap_script=$(readlink -f \"$0\")"));
+        assert!(output.contains("_shclap_bin=$(readlink -f \"$(command -v shclap)\")"));
+        // Runtime availability check with correct error message
+        assert!(output.contains("command -v docker >/dev/null 2>&1 || { echo \"shclap: container runtime 'docker' not found\" >&2; exit 127; }"));
+        // exec form with script and binary volume mounts
+        assert!(output.contains("exec docker run --rm \\"));
+        assert!(output.contains("-v \"$_shclap_script:$_shclap_script:ro\" \\"));
+        assert!(output.contains("-v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\"));
+        assert!(output.contains("-e SHCLAP_IN_CONTAINER=1 \\"));
+        // image and re-exec
+        assert!(output.contains("ubuntu:22.04 \\"));
+        assert!(output.contains("bash \"$_shclap_script\" \"$@\""));
+    }
+
+    #[test]
+    fn test_generate_container_reexec_string_with_extra_args() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "podman".to_string(),
+            image: "fedora:39".to_string(),
+            args: vec!["-v".to_string(), "/host:/container:ro".to_string()],
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Extra args must appear verbatim before the image
+        assert!(output.contains("-v \\"));
+        assert!(output.contains("/host:/container:ro \\"));
+        // Image comes after extra args
+        let v_pos = output.find("-v \\\n  /host:/container:ro \\").unwrap();
+        let img_pos = output.find("fedora:39 \\").unwrap();
+        assert!(v_pos < img_pos);
+    }
+
+    #[test]
+    fn test_container_reexec_quotes_args_containing_spaces() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:24.04".to_string(),
+            args: vec!["--label".to_string(), "my label".to_string()],
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Unquoted, the shell would split this into two arguments.
+        assert!(output.contains("  'my label' \\\n"));
+        assert!(!output.contains("  my label \\\n"));
+    }
+
+    #[test]
+    fn test_container_reexec_quotes_args_with_shell_metacharacters() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:24.04".to_string(),
+            args: vec![
+                "--label=a;id".to_string(),
+                "$(id)".to_string(),
+                "*".to_string(),
+            ],
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // The generated file is sourced, so none of these may reach the shell bare.
+        assert!(output.contains("  '--label=a;id' \\\n"));
+        assert!(output.contains("  '$(id)' \\\n"));
+        assert!(output.contains("  '*' \\\n"));
+    }
+
+    #[test]
+    fn test_container_reexec_quotes_single_quote_in_arg() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:24.04".to_string(),
+            args: vec!["it's".to_string()],
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        assert!(output.contains(r"  'it'\''s' \"));
+    }
+
+    #[test]
+    fn test_container_reexec_leaves_ordinary_args_unquoted() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "podman".to_string(),
+            image: "registry.example.com/team/img:v1.2.3".to_string(),
+            args: vec![
+                "--network".to_string(),
+                "host".to_string(),
+                "-v".to_string(),
+                "/host:/container:ro".to_string(),
+            ],
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Values that are inert to the shell stay readable.
+        assert!(output.contains("  --network \\\n  host \\\n"));
+        assert!(output.contains("  /host:/container:ro \\\n"));
+        assert!(output.contains("  registry.example.com/team/img:v1.2.3 \\\n"));
+    }
+
+    #[test]
+    fn test_container_reexec_quotes_image_with_metacharacters() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:24.04 ; id".to_string(),
+            args: vec![],
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        assert!(output.contains("  'ubuntu:24.04 ; id' \\\n"));
+    }
+
+    #[test]
+    fn test_shell_quote_allowlist() {
+        // Inert values pass through bare.
+        assert_eq!(shell_quote("ubuntu:24.04"), "ubuntu:24.04");
+        assert_eq!(shell_quote("--network"), "--network");
+        assert_eq!(shell_quote("/host:/container:ro"), "/host:/container:ro");
+        assert_eq!(shell_quote("a,b=c@d%e+f"), "a,b=c@d%e+f");
+
+        // Everything else is quoted.
+        assert_eq!(shell_quote(""), "''");
+        assert_eq!(shell_quote("a b"), "'a b'");
+        assert_eq!(shell_quote("a;id"), "'a;id'");
+        assert_eq!(shell_quote("a|b"), "'a|b'");
+        assert_eq!(shell_quote("a&b"), "'a&b'");
+        assert_eq!(shell_quote("$(id)"), "'$(id)'");
+        assert_eq!(shell_quote("`id`"), "'`id`'");
+        assert_eq!(shell_quote("a>b"), "'a>b'");
+        assert_eq!(shell_quote("*"), "'*'");
+        assert_eq!(shell_quote("~root"), "'~root'");
+        assert_eq!(shell_quote("a\nb"), "'a\nb'");
+        assert_eq!(shell_quote("it's"), r"'it'\''s'");
+    }
+
+    #[test]
+    fn test_generate_container_reexec_output_creates_file() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "alpine:3".to_string(),
+            args: vec![],
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let path = generate_container_reexec_output(&container, &config).unwrap();
+        assert!(path.exists());
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("exec docker run --rm"));
+        assert!(contents.contains("alpine:3"));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_container_reexec_forwards_prefix_matching_env_vars() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+            ..Default::default()
+        };
+        let config =
+            Config::from_json(r#"{"schema_version": 2, "name": "test", "prefix": "MYAPP_"}"#)
+                .unwrap();
+
+        // Set environment variables with the prefix
+        env::set_var("MYAPP_DEBUG", "true");
+        env::set_var("MYAPP_LOG_LEVEL", "info");
+        env::set_var("UNRELATED_VAR", "should_not_appear");
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Clean up
+        env::remove_var("MYAPP_DEBUG");
+        env::remove_var("MYAPP_LOG_LEVEL");
+        env::remove_var("UNRELATED_VAR");
+
+        // Should forward prefix-matching vars
+        assert!(output.contains("-e MYAPP_DEBUG \\"));
+        assert!(output.contains("-e MYAPP_LOG_LEVEL \\"));
+        // Should not forward unrelated vars
+        assert!(!output.contains("UNRELATED_VAR"));
+    }
+
+    #[test]
+    fn test_container_reexec_forwards_custom_env_names() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+            ..Default::default()
+        };
+
+        let config_json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {
+                    "name": "verbose",
+                    "type": "flag",
+                    "env": "CUSTOM_VERBOSE"
+                },
+                {
+                    "name": "config",
+                    "type": "option",
+                    "env": "CONFIG_PATH"
+                }
+            ]
+        }"#;
+
+        let config = Config::from_json(config_json).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Should forward custom env names
+        assert!(output.contains("-e CUSTOM_VERBOSE \\"));
+        assert!(output.contains("-e CONFIG_PATH \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_deduplicates_env_vars() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+            ..Default::default()
+        };
+
+        let config_json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "prefix": "SHCLAP_",
+            "args": [
+                {
+                    "name": "verbose",
+                    "type": "flag",
+                    "env": "SHCLAP_VERBOSE"
+                }
+            ]
+        }"#;
+
+        let config = Config::from_json(config_json).unwrap();
+
+        // Set an env var that matches both the prefix and a custom env name
+        env::set_var("SHCLAP_VERBOSE", "true");
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Clean up
+        env::remove_var("SHCLAP_VERBOSE");
+
+        // Should appear only once, not duplicated
+        let count = output.matches("-e SHCLAP_VERBOSE \\").count();
+        assert_eq!(count, 1, "SHCLAP_VERBOSE should appear exactly once");
+    }
+
+    // Tests for --pull flag support
+    #[test]
+    fn test_container_reexec_pull_policy_always_docker() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "always"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
+
+        let output = generate_container_reexec_string(container, &config);
+
+        // Should contain --pull=always immediately after --rm
+        assert!(output.contains("exec docker run --rm \\\n  --pull=always \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_pull_policy_never_docker() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "never"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
+
+        let output = generate_container_reexec_string(container, &config);
+
+        // Should contain --pull=never immediately after --rm
+        assert!(output.contains("exec docker run --rm \\\n  --pull=never \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_pull_policy_missing_docker() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "missing"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
+
+        let output = generate_container_reexec_string(container, &config);
+
+        // Should contain --pull=missing immediately after --rm
+        assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_pull_policy_always_podman() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "podman", "image": "fedora:39", "pull_policy": "always"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
+
+        let output = generate_container_reexec_string(container, &config);
+
+        // Should contain --pull=always immediately after --rm
+        assert!(output.contains("exec podman run --rm \\\n  --pull=always \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_pull_policy_never_podman() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "podman", "image": "fedora:39", "pull_policy": "never"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
+
+        let output = generate_container_reexec_string(container, &config);
+
+        // Should contain --pull=never immediately after --rm
+        assert!(output.contains("exec podman run --rm \\\n  --pull=never \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_pull_policy_missing_podman() {
+        use crate::config::Config;
+
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "podman", "image": "fedora:39", "pull_policy": "missing"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
+
+        let output = generate_container_reexec_string(container, &config);
+
+        // Should contain --pull=missing immediately after --rm
+        assert!(output.contains("exec podman run --rm \\\n  --pull=missing \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_default_pull_policy_is_missing() {
+        use crate::config::Config;
+
+        // No pull_policy specified in container — should default to Missing
+        let config = Config::from_json(
+            r#"{"schema_version": 2, "name": "test", "container": {"runtime": "docker", "image": "alpine:3"}}"#,
+        )
+        .unwrap();
+        let container = config.container.as_ref().unwrap();
+
+        let output = generate_container_reexec_string(container, &config);
+
+        // Should contain --pull=missing (the verbatim string for PullPolicy::Missing) immediately after --rm
+        assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));
     }
 }

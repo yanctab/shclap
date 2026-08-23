@@ -51,6 +51,21 @@ pub enum ConfigError {
 
     #[error("'value_type' cannot be used with flag type on argument '{0}'")]
     ValueTypeOnFlag(String),
+
+    #[error("unknown container runtime '{0}': must be \"docker\" or \"podman\"")]
+    UnknownContainerRuntime(String),
+
+    #[error("container image must not be empty")]
+    ContainerImageEmpty,
+
+    #[error("'container' cannot be used inside a subcommand")]
+    ContainerInSubcommand,
+
+    #[error("unknown pull policy '{0}': must be \"always\", \"missing\", or \"never\"")]
+    InvalidPullPolicy(String),
+
+    #[error("'pull_policy' must be nested under 'container', not at the top level")]
+    TopLevelPullPolicy,
 }
 
 /// The type of argument.
@@ -79,6 +94,30 @@ pub enum ValueType {
     Bool,
     /// 64-bit floating-point number
     Double,
+}
+
+/// Pull policy for container images (schema_version >= 2).
+/// Controls when container images are pulled from a registry.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PullPolicy {
+    /// Always pull the image from the registry
+    Always,
+    /// Pull only if the image is not present locally (default)
+    #[default]
+    Missing,
+    /// Never pull; use local image only
+    Never,
+}
+
+impl std::fmt::Display for PullPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PullPolicy::Always => write!(f, "always"),
+            PullPolicy::Missing => write!(f, "missing"),
+            PullPolicy::Never => write!(f, "never"),
+        }
+    }
 }
 
 /// Environment variable fallback setting (schema_version >= 2).
@@ -187,6 +226,21 @@ pub struct ArgConfig {
     pub value_type: ValueType,
 }
 
+/// Configuration for running the command inside a container (schema_version >= 2).
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ContainerConfig {
+    /// Container runtime: "docker" or "podman"
+    pub runtime: String,
+    /// Container image name (non-empty)
+    pub image: String,
+    /// Extra arguments passed verbatim to the runtime
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Container image pull policy (default: Missing)
+    #[serde(default)]
+    pub pull_policy: PullPolicy,
+}
+
 /// Configuration for a subcommand (schema_version >= 2).
 #[derive(Debug, Clone, Deserialize)]
 pub struct SubcommandConfig {
@@ -197,6 +251,8 @@ pub struct SubcommandConfig {
     /// Arguments for this subcommand
     #[serde(default)]
     pub args: Vec<ArgConfig>,
+    /// Container config is not permitted inside subcommands
+    pub container: Option<ContainerConfig>,
 }
 
 fn default_schema_version() -> u32 {
@@ -204,7 +260,7 @@ fn default_schema_version() -> u32 {
 }
 
 /// Top-level configuration for a script.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
     /// Schema version for the config format (default: 1)
     #[serde(default = "default_schema_version")]
@@ -223,6 +279,12 @@ pub struct Config {
     /// Subcommands (schema_version >= 2)
     #[serde(default)]
     pub subcommands: Vec<SubcommandConfig>,
+    /// Container execution config (schema_version >= 2)
+    pub container: Option<ContainerConfig>,
+    /// Sentinel: detects if pull_policy was specified at the top level (always a validation error).
+    /// pull_policy belongs nested under container, not at the top level.
+    #[serde(rename = "pull_policy", default)]
+    pub(crate) pull_policy_sentinel: Option<String>,
 }
 
 impl Config {
@@ -236,6 +298,11 @@ impl Config {
     pub fn validate(&self) -> Result<(), ConfigError> {
         use std::collections::HashSet;
 
+        // Reject top-level pull_policy — it must be nested under container.
+        if self.pull_policy_sentinel.is_some() {
+            return Err(ConfigError::TopLevelPullPolicy);
+        }
+
         // Validate schema version
         if self.schema_version < MIN_SCHEMA_VERSION || self.schema_version > MAX_SCHEMA_VERSION {
             return Err(ConfigError::UnsupportedSchemaVersion(self.schema_version));
@@ -245,6 +312,12 @@ impl Config {
         if self.schema_version < 2 {
             if !self.subcommands.is_empty() {
                 return Err(ConfigError::SubcommandsRequireV2);
+            }
+            if self.container.is_some() {
+                return Err(ConfigError::FieldRequiresV2(
+                    "container".to_string(),
+                    String::new(),
+                ));
             }
             for arg in &self.args {
                 Self::validate_no_v2_fields(arg)?;
@@ -262,12 +335,28 @@ impl Config {
             Self::validate_arg(arg, self.schema_version)?;
         }
 
+        // Validate container (schema_version >= 2 already checked above)
+        if let Some(ref container) = self.container {
+            if container.runtime != "docker" && container.runtime != "podman" {
+                return Err(ConfigError::UnknownContainerRuntime(
+                    container.runtime.clone(),
+                ));
+            }
+            if container.image.is_empty() {
+                return Err(ConfigError::ContainerImageEmpty);
+            }
+        }
+
         // Validate subcommands
         if self.schema_version >= 2 {
             let mut subcmd_names = HashSet::new();
             for subcmd in &self.subcommands {
                 if !subcmd_names.insert(&subcmd.name) {
                     return Err(ConfigError::DuplicateSubcommandName(subcmd.name.clone()));
+                }
+
+                if subcmd.container.is_some() {
+                    return Err(ConfigError::ContainerInSubcommand);
                 }
 
                 let mut subcmd_arg_names = HashSet::new();
@@ -1317,6 +1406,118 @@ mod tests {
         assert!(arg.uses_v2_features());
     }
 
+    // Container config tests
+
+    #[test]
+    fn test_container_docker_runtime_parses_successfully() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "docker",
+                "image": "ubuntu:22.04",
+                "args": ["--rm", "-it"]
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.runtime, "docker");
+        assert_eq!(container.image, "ubuntu:22.04");
+        assert_eq!(container.args, vec!["--rm", "-it"]);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_container_unknown_runtime_returns_error() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "singularity",
+                "image": "ubuntu:22.04",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::UnknownContainerRuntime(rt)) if rt == "singularity")
+        );
+    }
+
+    #[test]
+    fn test_container_in_subcommand_returns_error() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "subcommands": [
+                {
+                    "name": "run",
+                    "container": {
+                        "runtime": "docker",
+                        "image": "ubuntu:22.04",
+                        "args": []
+                    }
+                }
+            ]
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::ContainerInSubcommand)));
+    }
+
+    #[test]
+    fn test_container_empty_image_returns_error() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "docker",
+                "image": "",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::ContainerImageEmpty)));
+    }
+
+    #[test]
+    fn test_container_in_v1_schema_returns_field_requires_v2() {
+        let json = r#"{
+            "schema_version": 1,
+            "name": "test",
+            "container": {
+                "runtime": "docker",
+                "image": "ubuntu:22.04",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(
+            matches!(result, Err(ConfigError::FieldRequiresV2(field, _)) if field == "container")
+        );
+    }
+
+    #[test]
+    fn test_container_podman_runtime_parses_successfully() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "podman",
+                "image": "fedora:39",
+                "args": []
+            }
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.runtime, "podman");
+        assert_eq!(container.image, "fedora:39");
+        config.validate().unwrap();
+    }
+
     #[test]
     fn test_default_value_type_is_string() {
         let json = r#"{
@@ -1354,5 +1555,151 @@ mod tests {
             ..arg.clone()
         };
         assert!(!string_arg.uses_v2_features());
+    }
+
+    // --- pull_policy relocation tests ---
+
+    #[test]
+    fn test_top_level_pull_policy_rejected_by_validate() {
+        // pull_policy must be nested under container, not at the top level.
+        // Currently validate() accepts it; after the fix it must reject it.
+        let json = r#"{"schema_version": 2, "name": "test", "pull_policy": "always"}"#;
+        let config = Config::from_json(json).unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    // ContainerConfig.pull_policy tests (pull_policy nested under container)
+
+    #[test]
+    fn test_container_pull_policy_nested_always() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "always"}
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.pull_policy, PullPolicy::Always);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_container_pull_policy_nested_never() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "never"}
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.pull_policy, PullPolicy::Never);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_container_pull_policy_nested_missing() {
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "missing"}
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.pull_policy, PullPolicy::Missing);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_container_pull_policy_defaults_to_missing() {
+        // No pull_policy in container block — must default to Missing.
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04"}
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.pull_policy, PullPolicy::Missing);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_container_absent_cfg_container_is_none() {
+        // Config without a container block must have container = None.
+        let json = r#"{"schema_version": 2, "name": "test"}"#;
+        let config = Config::from_json(json).unwrap();
+        assert!(config.container.is_none());
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_top_level_pull_policy_rejected_by_validate_is_error() {
+        // Top-level pull_policy must be a validation error regardless of value.
+        let json = r#"{"schema_version": 2, "name": "test", "pull_policy": "always"}"#;
+        let config = Config::from_json(json).unwrap();
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::TopLevelPullPolicy)));
+    }
+
+    #[test]
+    fn test_container_pull_policy_unknown_string_returns_parse_error() {
+        // An unknown pull_policy value inside container must fail at parse time.
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "unknown"}
+        }"#;
+        let result = Config::from_json(json);
+        assert!(result.is_err());
+    }
+
+    // --- pull_policy value-set correction tests (issue #78) ---
+
+    #[test]
+    fn test_pull_policy_missing_variant_deserialises_from_json_missing() {
+        // Criterion 1: "missing" JSON string must deserialise to PullPolicy::Missing
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "missing"}
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.container.unwrap().pull_policy, PullPolicy::Missing);
+    }
+
+    #[test]
+    fn test_default_pull_policy_is_missing() {
+        // Criterion 2: when pull_policy is absent the default must be PullPolicy::Missing
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04"}
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        assert_eq!(config.container.unwrap().pull_policy, PullPolicy::Missing);
+    }
+
+    #[test]
+    fn test_pull_policy_ifnotpresent_rejected_by_parse() {
+        // Criterion 3: "ifnotpresent" must be rejected with an error naming the bad value
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "ifnotpresent"}
+        }"#;
+        let result = Config::from_json(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pull_policy_latest_rejected_by_parse() {
+        // Criterion 3+5: "latest" is not a valid pull policy
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04", "pull_policy": "latest"}
+        }"#;
+        let result = Config::from_json(json);
+        assert!(result.is_err());
     }
 }

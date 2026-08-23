@@ -5,19 +5,21 @@
 //! and outputting parsed values as shell export statements.
 
 pub mod config;
+pub mod container;
 pub mod help;
 pub mod output;
 pub mod parser;
 
 pub use config::{
-    ArgConfig, ArgType, Config, ConfigError, SubcommandConfig, MAX_SCHEMA_VERSION,
-    MIN_SCHEMA_VERSION,
+    ArgConfig, ArgType, Config, ConfigError, ContainerConfig, PullPolicy, SubcommandConfig,
+    MAX_SCHEMA_VERSION, MIN_SCHEMA_VERSION,
 };
+pub use container::{detect_container, detect_container_with, ContainerSignal};
 pub use help::{generate_help, generate_version};
 pub use output::{
-    generate_error_output, generate_error_string, generate_help_output,
-    generate_help_output_string, generate_output, generate_output_string,
-    generate_output_string_legacy, generate_print, generate_version_output,
+    generate_container_reexec_output, generate_container_reexec_string, generate_error_output,
+    generate_error_string, generate_help_output, generate_help_output_string, generate_output,
+    generate_output_string, generate_output_string_legacy, generate_print, generate_version_output,
     generate_version_output_string,
 };
 pub use parser::{parse_args, ParseError, ParseOutcome, ParseResult, ParseSuccess, ParsedValue};
