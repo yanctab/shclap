@@ -875,6 +875,270 @@ else
 fi
 
 
+section "20. Container Bootstrap — Multi-signal Detection"
+
+# AC1: SHCLAP_IN_CONTAINER=1 with container config produces path, no stderr message
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+export SHCLAP_IN_CONTAINER=1
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+STDERR_FILE=$(mktemp)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- -v 2>"$STDERR_FILE")
+unset SHCLAP_IN_CONTAINER
+if [[ -n "$OUTPUT_FILE" ]] && ! grep -q "already inside container" "$STDERR_FILE"; then
+    pass "SHCLAP_IN_CONTAINER=1 emits path, no stderr skip message"
+else
+    fail "SHCLAP_IN_CONTAINER=1 test" "Should emit path with no 'already inside container' in stderr" "OUTPUT_FILE=$OUTPUT_FILE, STDERR=$(cat $STDERR_FILE)"
+fi
+rm -f "$STDERR_FILE" "$OUTPUT_FILE"
+
+# AC2: /.dockerenv present via --container-marker-root with container config
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+TMPDIR=$(mktemp -d)
+touch "$TMPDIR/.dockerenv"
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+STDERR_FILE=$(mktemp)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --container-marker-root "$TMPDIR" -- -v 2>"$STDERR_FILE")
+if [[ -n "$OUTPUT_FILE" ]] && grep -q "container detected via /.dockerenv, skipping reexec" "$STDERR_FILE"; then
+    pass "/.dockerenv detected emits path and skip message"
+else
+    fail "/.dockerenv detection" "Should detect /.dockerenv and emit skip message" "STDERR=$(cat $STDERR_FILE)"
+fi
+rm -f "$STDERR_FILE" "$OUTPUT_FILE"
+rm -rf "$TMPDIR"
+
+# AC3: No signals with container config triggers reexec bootstrap path
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+STDERR_FILE=$(mktemp)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --container-marker-root /nonexistent -- -v 2>"$STDERR_FILE")
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exec docker run"; then
+    pass "No signals with container config triggers reexec"
+else
+    fail "No signals with container config" "Should emit reexec script" "OUTPUT=$(cat $OUTPUT_FILE)"
+fi
+rm -f "$STDERR_FILE" "$OUTPUT_FILE"
+
+# AC4: No signals without container config produces plain parse output
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}'
+STDERR_FILE=$(mktemp)
+unset SHCLAP_VERBOSE 2>/dev/null || true
+source "$("$SHCLAP" parse --config "$CONFIG" --container-marker-root /nonexistent -- -v 2>"$STDERR_FILE")"
+if [[ "${SHCLAP_VERBOSE:-}" == "true" ]]; then
+    pass "No signals without container config produces normal exports"
+else
+    fail "No signals no container config" "Should export SHCLAP_VERBOSE=true" "SHCLAP_VERBOSE=${SHCLAP_VERBOSE:-unset}"
+fi
+rm -f "$STDERR_FILE"
+
+# Test: container reexec output includes runtime availability check
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"podman","image":"fedora:39","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "command -v podman" && echo "$OUTPUT_CONTENTS" | grep -q "container runtime 'podman' not found"; then
+    pass "container reexec output includes runtime availability check"
+else
+    fail "container runtime check" "output file should contain runtime availability check" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: Help outcome is unaffected by container config
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- --help 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exit 0" && ! echo "$OUTPUT_CONTENTS" | grep -q "exec docker run"; then
+    pass "Help outcome is unaffected by container config"
+else
+    fail "Help unaffected by container" "output file should contain 'exit 0' and not 'exec docker run'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: Version outcome is unaffected by container config
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","version":"1.0.0","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- --version 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exit 0" && ! echo "$OUTPUT_CONTENTS" | grep -q "exec docker run"; then
+    pass "Version outcome is unaffected by container config"
+else
+    fail "Version unaffected by container" "output file should contain 'exit 0' and not 'exec docker run'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: shclap help subcommand is unaffected by container config
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","description":"A test app","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+HELP_OUTPUT=$("$SHCLAP" help --config "$CONTAINER_CONFIG" --name testapp 2>&1)
+if ! echo "$HELP_OUTPUT" | grep -q "exec docker run"; then
+    pass "shclap help subcommand is unaffected by container config"
+else
+    fail "help subcommand container" "output should not contain 'exec docker run'" "$HELP_OUTPUT"
+fi
+
+# Test: shclap version subcommand is unaffected by container config
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","version":"2.5.0","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+VERSION_OUTPUT=$("$SHCLAP" version --config "$CONTAINER_CONFIG" --name testapp 2>&1)
+if ! echo "$VERSION_OUTPUT" | grep -q "exec docker run"; then
+    pass "shclap version subcommand is unaffected by container config"
+else
+    fail "version subcommand container" "output should not contain 'exec docker run'" "$VERSION_OUTPUT"
+fi
+
+# Test: shclap print subcommand is unaffected by container config
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","prefix":"MYAPP_","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+PRINT_OUTPUT=$("$SHCLAP" print --config "$CONTAINER_CONFIG" --name testapp 2>&1)
+if ! echo "$PRINT_OUTPUT" | grep -q "exec docker run"; then
+    pass "shclap print subcommand is unaffected by container config"
+else
+    fail "print subcommand container" "output should not contain 'exec docker run'" "$PRINT_OUTPUT"
+fi
+
+# Test: Structural order of exec-form file (exec-form order verification)
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"testscript","container":{"runtime":"docker","image":"test-image:latest","args":[]},"args":[{"name":"foo","short":"f","type":"option"}]}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+
+# Verify all required elements are present
+all_present=true
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "_shclap_script="; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "_shclap_bin="; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "command -v docker"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "shclap: bootstrapping into docker:"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "set -x"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "exec docker run --rm"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "_shclap_script:ro"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "/usr/local/bin/shclap:ro"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "SHCLAP_IN_CONTAINER=1"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF "test-image:latest"; then all_present=false; fi
+if ! echo "$OUTPUT_CONTENTS" | grep -qF 'bash "$_shclap_script" "$@"'; then all_present=false; fi
+
+# Verify order: _shclap_script comes before _shclap_bin comes before runtime check comes before debug echo comes before set -x comes before exec
+script_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "_shclap_script=" | head -1 | cut -d: -f1)
+bin_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "_shclap_bin=" | head -1 | cut -d: -f1)
+check_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "command -v docker" | head -1 | cut -d: -f1)
+debug_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "shclap: bootstrapping into" | head -1 | cut -d: -f1)
+setx_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "set -x" | head -1 | cut -d: -f1)
+exec_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "exec docker run" | head -1 | cut -d: -f1)
+image_line=$(echo "$OUTPUT_CONTENTS" | grep -nF "test-image:latest \\" | head -1 | cut -d: -f1)
+bash_line=$(echo "$OUTPUT_CONTENTS" | grep -nF 'bash "$_shclap_script"' | head -1 | cut -d: -f1)
+
+correct_order=true
+if [[ -z "$script_line" || -z "$bin_line" || -z "$check_line" || -z "$debug_line" || -z "$setx_line" || -z "$exec_line" || -z "$image_line" || -z "$bash_line" ]]; then
+    correct_order=false
+elif [[ $script_line -ge $bin_line || $bin_line -ge $check_line || $check_line -ge $debug_line || $debug_line -ge $setx_line || $setx_line -ge $exec_line || $exec_line -ge $image_line || $image_line -ge $bash_line ]]; then
+    correct_order=false
+fi
+
+if [[ "$all_present" == "true" && "$correct_order" == "true" ]]; then
+    pass "Container exec-form file contains elements in correct order"
+else
+    fail "Container exec-form order" "Elements should appear in specific order" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: generic bypass signal (/.dockerenv) emits exactly one diagnostic line to stderr and proceeds to argument parsing
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+MARKER_DIR=$(mktemp -d)
+touch "$MARKER_DIR/.dockerenv"
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+STDERR_OUTPUT=$("$SHCLAP" parse --container-marker-root "$MARKER_DIR" --config "$CONTAINER_CONFIG" -- -v 2>&1 >/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --container-marker-root "$MARKER_DIR" --config "$CONTAINER_CONFIG" -- -v 2>/dev/null)
+unset SHCLAP_VERBOSE 2>/dev/null || true
+source "$OUTPUT_FILE"
+rm -rf "$MARKER_DIR"
+diagnostic_count=$(echo "$STDERR_OUTPUT" | grep -c "skipping reexec" || true)
+if [[ "$diagnostic_count" -eq 1 && "${SHCLAP_VERBOSE:-}" == "true" ]]; then
+    pass "generic bypass signal (/.dockerenv) emits exactly one diagnostic and proceeds to argument parsing"
+else
+    fail "generic bypass diagnostic" "1 diagnostic line + SHCLAP_VERBOSE=true" "diagnostic_lines=$diagnostic_count SHCLAP_VERBOSE=${SHCLAP_VERBOSE:-unset}"
+fi
+
+
+section "21. Container Pull Policy"
+
+# Test: pull_policy omitted defaults to if-not-present (missing in --pull flag)
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=missing"; then
+    pass "pull_policy omitted defaults to --pull=missing"
+else
+    fail "pull_policy default" "output file should contain '--pull=missing'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: pull_policy always emits --pull=always
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[],"pull_policy":"always"}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=always"; then
+    pass "pull_policy: always emits --pull=always"
+else
+    fail "pull_policy always" "output file should contain '--pull=always'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: pull_policy never emits --pull=never
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[],"pull_policy":"never"}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=never"; then
+    pass "pull_policy: never emits --pull=never"
+else
+    fail "pull_policy never" "output file should contain '--pull=never'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: invalid pull_policy value produces deserialization error
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[],"pull_policy":"bogus"}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT_FILE'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "pull_policy" || echo "$ERROR_OUTPUT" | grep -q "unknown"; then
+    pass "invalid pull_policy value produces error"
+else
+    fail "invalid pull_policy" "output file should produce error when sourced" "$ERROR_OUTPUT"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: pull_policy works with podman runtime
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"podman","image":"fedora:39","args":[],"pull_policy":"always"}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exec podman run" && echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=always"; then
+    pass "pull_policy works with podman runtime"
+else
+    fail "pull_policy podman" "output file should contain 'exec podman run' and '--pull=always'" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
 #
 # Summary
 #

@@ -227,6 +227,39 @@ Help text for the subcommand (optional).
 .B args
 Array of argument definitions for this subcommand (optional).
 .RE
+.SS "Container Bootstrap (Schema Version 2)"
+.TP
+.B runtime
+Container runtime to use. One of:
+.RS
+.TP
+.B docker
+Use the Docker runtime.
+.TP
+.B podman
+Use the Podman runtime.
+.RE
+.TP
+.B image
+Fully-qualified image reference (required). Example: registry.example.com/img:tag
+.TP
+.B pull_policy
+When to pull the container image. Must be nested under the \fBcontainer\fR block.
+Accepted values: \fBalways\fR | \fBmissing\fR | \fBnever\fR. Default: \fBmissing\fR.
+.RS
+.TP
+.B always
+Always pull from the registry, even if a local copy exists.
+.TP
+.B missing
+Pull only if no local copy is present (default).
+.TP
+.B never
+Never pull; fail if the image is not cached locally.
+.RE
+.TP
+.B args
+Array of extra flags to pass to the runtime. Example: ["--network", "host"]
 .SH OUTPUT FORMAT
 .SS "Scalar Values"
 Single values are exported as quoted strings:
@@ -304,6 +337,12 @@ shclap: duplicate argument name: verbose
 .TP
 .B Unsupported schema version
 shclap: unsupported schema version 99 (supported: 1-2)
+.TP
+.B Unknown container runtime
+shclap: unknown container runtime 'invalid'
+.TP
+.B Missing container image
+shclap: container image must not be empty
 .SH EXAMPLES
 .SS "Basic Script"
 .PP
@@ -406,6 +445,71 @@ case "$SHCLAP_SUBCOMMAND" in
   build) [[ "$SHCLAP_RELEASE" == "true" ]] && echo "Release build" ;;
 esac
 .fi
+.RE
+.SH CONTAINER DETECTION
+shclap can detect when it is already running inside a container and skip
+bootstrap reexecution to prevent infinite loops or redundant containerization.
+.PP
+.SS "Detection Signals (Priority Order)"
+Container detection uses four signals, checked in priority order:
+.TP
+1. \fBSHCLAP_IN_CONTAINER\fR (environment variable)
+Set by shclap itself during bootstrap reexecution. Internal signal; produces
+no stderr output. Prevents infinite reexecution loops.
+.TP
+2. \fB/.dockerenv\fR (file)
+Created by the Docker daemon. Indicates the process is in a Docker container.
+Runtime signal; produces stderr output when detected.
+.TP
+3. \fB/run/.containerenv\fR (file)
+Created by container runtimes (systemd, cri-o, etc.). Indicates the process
+is in a container. Runtime signal; produces stderr output when detected.
+.TP
+4. \fB$container\fR (environment variable)
+Set by container runtimes (systemd-nspawn, Podman, etc.). Indicates the process
+is inside a container. Runtime signal; produces stderr output when detected.
+.PP
+When any signal is detected, shclap skips bootstrap reexecution and proceeds
+directly to normal argument parsing.
+.PP
+.SS "Stderr Output Format"
+When a runtime signal is detected, shclap emits the following message to stderr:
+.PP
+.RS
+.nf
+shclap: already inside container (via <signal>) \(em skipping bootstrap
+.fi
+.RE
+.PP
+The \fI<signal>\fR placeholder is replaced with one of:
+\fB/.dockerenv\fR, \fB/run/.containerenv\fR, or \fB$container\fR.
+The internal \fBSHCLAP_IN_CONTAINER\fR signal produces no stderr output.
+.PP
+.SS "Semantic Distinction"
+\fBSHCLAP_IN_CONTAINER\fR is set by shclap itself when performing bootstrap
+reexecution. It is silent and internal, used to prevent bootstrap loops.
+.PP
+The other three signals (\fB/.dockerenv\fR, \fB/run/.containerenv\fR, \fB$container\fR)
+are set by the host container runtime (Docker, Podman, systemd, etc.) before
+shclap runs. They are verbose (produce stderr output) and indicate that an
+external container runtime has already placed the process in a container,
+not shclap's bootstrap mechanism.
+.PP
+.SS "Skip Behavior"
+When any detection signal is found:
+.RS
+.TP
+1.
+Bootstrap reexecution is skipped
+.TP
+2.
+Argument parsing proceeds with the current process
+.TP
+3.
+Any container bootstrap configuration is ignored
+.PP
+This prevents infinite reexecution loops, redundant containerization, and
+nested bootstrap attempts that could fail or behave unexpectedly.
 .RE
 .SH SEE ALSO
 .BR bash (1),
