@@ -60,6 +60,7 @@ The exact shape of the emitted invocation:
 ```sh
 _shclap_script=$(readlink -f "$0")
 _shclap_bin=$(readlink -f "$(command -v shclap)")
+_shclap_cwd=$(pwd)
 command -v docker >/dev/null 2>&1 || { echo "shclap: container runtime 'docker' not found" >&2; exit 127; }
 echo "shclap: bootstrapping into docker:ubuntu:22.04" >&2
 set -x
@@ -67,7 +68,9 @@ exec docker run --rm \
   --pull=missing \
   -v "$_shclap_script:$_shclap_script:ro" \
   -v "$_shclap_bin:/usr/local/bin/shclap:ro" \
+  -v "$_shclap_cwd:$_shclap_cwd" \
   -e SHCLAP_IN_CONTAINER=1 \
+  --workdir "$_shclap_cwd" \
   [forwarded env vars as -e NAME ...] \
   [container.args values ...] \
   ubuntu:22.04 \
@@ -78,6 +81,7 @@ Key points:
 
 - `--pull=<policy>` is emitted immediately after `--rm`. The value matches `container.pull_policy` verbatim (`always`, `missing`, or `never`).
 - The script and shclap binary are mounted read-only into the container.
+- The caller's working directory is captured, bind-mounted read-write into the container, and set as the `--workdir` inside the container. This ensures relative paths work correctly inside the container. The caller can override the working directory via `container.args` (e.g., `"args": ["--workdir", "/tmp"]`).
 - `SHCLAP_IN_CONTAINER=1` is set so the container pass detects the bypass signal.
 - All environment variables whose names start with the configured prefix are forwarded.
 - All variables listed via `env` fields in the argument config are forwarded.
