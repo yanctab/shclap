@@ -6,6 +6,7 @@
 
 pub mod config;
 pub mod container;
+pub mod expand;
 pub mod help;
 pub mod output;
 pub mod parser;
@@ -15,6 +16,7 @@ pub use config::{
     MAX_SCHEMA_VERSION, MIN_SCHEMA_VERSION,
 };
 pub use container::{detect_container, detect_container_with, ContainerSignal};
+pub use expand::{expand, ExpandError};
 pub use help::{generate_help, generate_version};
 pub use output::{
     generate_container_reexec_output, generate_container_reexec_string, generate_error_output,
