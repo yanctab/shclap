@@ -307,6 +307,15 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Co
     s.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
     s.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
     s.push_str("  -e SHCLAP_IN_CONTAINER=1 \\\n");
+
+    // Forward SHCLAP_LOG and SHCLAP_LOG_STYLE immediately after SHCLAP_IN_CONTAINER=1
+    if env::var("SHCLAP_LOG").is_ok() {
+        s.push_str("  -e SHCLAP_LOG \\\n");
+    }
+    if env::var("SHCLAP_LOG_STYLE").is_ok() {
+        s.push_str("  -e SHCLAP_LOG_STYLE \\\n");
+    }
+
     s.push_str("  -v \"$_shclap_cwd:$_shclap_cwd\" \\\n");
     s.push_str("  --workdir \"$_shclap_cwd\" \\\n");
 
@@ -340,7 +349,11 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Co
     }
 
     // Step 3: Emit the -e lines in sorted order for deterministic output
-    let mut sorted_vars: Vec<_> = forwarded_vars.into_iter().collect();
+    // Exclude SHCLAP_LOG and SHCLAP_LOG_STYLE (already emitted above)
+    let mut sorted_vars: Vec<_> = forwarded_vars
+        .into_iter()
+        .filter(|var| var != "SHCLAP_LOG" && var != "SHCLAP_LOG_STYLE")
+        .collect();
     sorted_vars.sort();
     for var_name in sorted_vars {
         s.push_str(&format!("  -e {var_name} \\\n"));
@@ -1206,6 +1219,60 @@ mod tests {
         assert!(
             workdir_pos < arg_pos,
             "workdir must come before container.args"
+        );
+    }
+
+    #[test]
+    fn test_container_reexec_forwards_shclap_log_vars_immediately_after_in_container() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec![],
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        // Set the SHCLAP_LOG and SHCLAP_LOG_STYLE environment variables
+        env::set_var("SHCLAP_LOG", "debug");
+        env::set_var("SHCLAP_LOG_STYLE", "always");
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Clean up
+        env::remove_var("SHCLAP_LOG");
+        env::remove_var("SHCLAP_LOG_STYLE");
+
+        // Verify both variables appear in output
+        assert!(
+            output.contains("-e SHCLAP_LOG \\"),
+            "SHCLAP_LOG should be forwarded"
+        );
+        assert!(
+            output.contains("-e SHCLAP_LOG_STYLE \\"),
+            "SHCLAP_LOG_STYLE should be forwarded"
+        );
+
+        // Verify ordering: both appear immediately after SHCLAP_IN_CONTAINER=1
+        let container_env_pos = output.find("-e SHCLAP_IN_CONTAINER=1").unwrap();
+        let log_pos = output.find("-e SHCLAP_LOG \\").unwrap();
+        let log_style_pos = output.find("-e SHCLAP_LOG_STYLE \\").unwrap();
+
+        assert!(
+            container_env_pos < log_pos,
+            "SHCLAP_IN_CONTAINER=1 must come before SHCLAP_LOG"
+        );
+        assert!(
+            log_pos < log_style_pos,
+            "SHCLAP_LOG must come before SHCLAP_LOG_STYLE"
+        );
+
+        // Verify they come immediately after SHCLAP_IN_CONTAINER=1 (before any volume mounts or workdir)
+        let vol_pos = output.find("-v \"$_shclap_cwd:$_shclap_cwd\"").unwrap();
+        assert!(
+            log_style_pos < vol_pos,
+            "SHCLAP_LOG_STYLE must come before volume mounts"
         );
     }
 }
