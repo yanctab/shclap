@@ -1272,6 +1272,45 @@ else
     fail "print missing var error" "should produce error for missing variable" "$OUTPUT"
 fi
 
+section "17. Log Subcommand"
+
+# Test: log accepts valid levels
+run_test
+for level in info debug warn error trace; do
+    OUTPUT=$("$SHCLAP" log "$level" "test message" 2>&1)
+    if [[ $? -eq 0 ]]; then
+        pass "log accepts valid level: $level"
+    else
+        fail "log accepts level $level" "exit code 0" "got non-zero"
+    fi
+done
+
+# Test: log rejects invalid level
+run_test
+OUTPUT=$("$SHCLAP" log invalid "test message" 2>&1) || true
+if echo "$OUTPUT" | grep -qi "unrecognized log level"; then
+    pass "log rejects invalid level"
+else
+    fail "log rejects invalid level" "error message with 'unrecognized log level'" "$OUTPUT"
+fi
+
+# Test: log message goes to stderr
+run_test
+OUTPUT=$("$SHCLAP" log info "hello world" 2>&1 1>/dev/null)
+if echo "$OUTPUT" | grep -qi "INFO"; then
+    pass "log message goes to stderr"
+else
+    fail "log to stderr" "INFO in stderr" "$OUTPUT"
+fi
+
+# Test: log respects SHCLAP_LOG environment variable (filter)
+run_test
+SHCLAP_LOG=error "$SHCLAP" log info "should be filtered" 2>&1 | grep -q "INFO" && {
+    fail "log respects SHCLAP_LOG filter" "no output for info when SHCLAP_LOG=error" "got output"
+} || {
+    pass "log respects SHCLAP_LOG filter"
+}
+
 #
 # Summary
 #
