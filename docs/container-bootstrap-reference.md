@@ -47,6 +47,32 @@ This skip behavior prevents:
 - Redundant reexecution when the process is already containerized
 - Nested bootstrap attempts that could fail or behave unexpectedly
 
+## Working Directory Bind-Mount
+
+When bootstrapping into a container, shclap automatically:
+
+1. Captures the caller's working directory using `pwd`
+2. Bind-mounts this directory read-write into the container at the same path
+3. Sets the container's `--workdir` to this directory
+
+This ensures that relative paths in your script work correctly inside the container, as if the script were running directly on the host.
+
+**Override via `container.args`:**
+
+If you need to change the working directory inside the container, you can pass an explicit `--workdir` flag via `container.args`:
+
+```json
+{
+  "container": {
+    "runtime": "docker",
+    "image": "myapp:latest",
+    "args": ["--workdir", "/tmp"]
+  }
+}
+```
+
+When `container.args` includes `--workdir`, it shadows the automatic CWD mount, and the container runs in the specified directory instead.
+
 ### Examples
 
 **Example 1: Script with container bootstrap config, called locally**
