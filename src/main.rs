@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use shclap::{
     detect_container_with, generate_container_reexec_output, generate_error_output, generate_help,
     generate_help_output, generate_output, generate_print, generate_version,
-    generate_version_output, parse_args, Config, ContainerSignal, ParseOutcome, logging,
+    generate_version_output, logging, parse_args, Config, ContainerSignal, ParseOutcome,
 };
 
 /// Clap-style argument parsing for shell scripts.
