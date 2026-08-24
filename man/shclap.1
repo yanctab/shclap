@@ -511,6 +511,44 @@ Any container bootstrap configuration is ignored
 This prevents infinite reexecution loops, redundant containerization, and
 nested bootstrap attempts that could fail or behave unexpectedly.
 .RE
+.SS "Environment Variable Expansion"
+.PP
+Configuration fields can reference environment variables using bash-style syntax.
+Variable expansion occurs at parse time against the host environment.
+.PP
+Supported syntax:
+.RS
+.TP
+.B $NAME
+Expands to the value of environment variable
+.I NAME
+.TP
+.B ${NAME}
+Expands to the value of environment variable
+.I NAME
+(supports names with special characters)
+.TP
+.B $$
+Expands to a literal
+.B $
+character
+.RE
+.PP
+Expansion applies to these fields:
+.BR description ,
+.BR version ,
+.BR args[].default ,
+.BR args[].help ,
+.BR args[].choices ,
+.BR subcommands[].help ,
+.BR container.image ,
+and
+.BR container.args .
+.PP
+If a referenced variable does not exist in the host environment,
+.B shclap
+will produce an error message during the respective operation.
+Expansion occurs before validation, ensuring that missing variables are caught early.
 .SH SEE ALSO
 .BR bash (1),
 .BR getopt (1)

@@ -290,6 +290,36 @@ For example, with default prefix `SHCLAP_`:
 - `name: "output_file"` -> `$SHCLAP_OUTPUT_FILE`
 - `name: "api-key"` -> `$SHCLAP_API_KEY` (hyphens become underscores)
 
+## Environment Variable Expansion
+
+Configuration fields can reference environment variables using bash-style syntax. Variable expansion occurs at parse time against the host environment. The following syntax is supported:
+
+- `$NAME` - expands to the value of environment variable `NAME`
+- `${NAME}` - expands to the value of environment variable `NAME` (supports names with special characters)
+- `$$` - expands to a literal `$` character
+
+Expansion applies to these configuration fields:
+- `description` - the application description
+- `version` - the version string
+- `args[].default` - default values for arguments
+- `args[].help` - help text for arguments
+- `args[].choices` - choice values for arguments
+- `subcommands[].help` - help text for subcommands
+- `container.image` - the container image name
+- `container.args` - arguments passed to the container
+
+If a referenced variable does not exist in the host environment, shclap will produce an error message during the respective operation (parse, help, version, or print).
+
+Example:
+
+```bash
+APP_VERSION="1.2.0" shclap parse --config '{
+  "name": "myapp",
+  "version": "v$APP_VERSION",
+  "description": "My app (configured from $HOME)"
+}' -- "$@"
+```
+
 ## See Also
 
 - [Schema Reference](schema.md) - Schema versioning and v2 features
