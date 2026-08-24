@@ -10,6 +10,41 @@ use std::sync::Once;
 
 static LOGGER_INIT: Once = Once::new();
 
+/// ANSI color codes for log levels
+mod colors {
+    pub const TRACE: &str = "\x1b[36m";   // Cyan
+    pub const DEBUG: &str = "\x1b[35m";   // Magenta
+    pub const INFO: &str = "\x1b[32m";    // Green
+    pub const WARN: &str = "\x1b[33m";    // Yellow
+    pub const ERROR: &str = "\x1b[31m";   // Red
+    pub const RESET: &str = "\x1b[0m";    // Reset
+}
+
+/// Check if stderr is a TTY
+fn is_stderr_tty() -> bool {
+    atty::is(atty::Stream::Stderr)
+}
+
+/// Format a level string with optional color
+fn format_level(level: &str, use_color: bool) -> String {
+    let level_upper = level.to_uppercase();
+    let level_display = if level == "warn" { "WARNING" } else { &level_upper };
+
+    if use_color {
+        let color = match level {
+            "trace" => colors::TRACE,
+            "debug" => colors::DEBUG,
+            "info" => colors::INFO,
+            "warn" => colors::WARN,
+            "error" => colors::ERROR,
+            _ => "",
+        };
+        format!("{}{}{}", color, level_display, colors::RESET)
+    } else {
+        level_display.to_string()
+    }
+}
+
 /// Run the logging subcommand.
 ///
 /// Initializes env_logger with a custom format, sets the filter level from
@@ -21,20 +56,26 @@ pub fn run(level: &str, message: &[String]) -> Result<()> {
         bail!("unrecognized log level: {}", level);
     }
 
+    // Detect TTY for color output
+    let use_color = is_stderr_tty();
+
     // Initialize env_logger with custom format (only once per process)
     LOGGER_INIT.call_once(|| {
         let mut builder = env_logger::Builder::new();
 
-        // Set up custom format: LEVEL: <message>
-        builder.format(|buf, record| {
-            writeln!(buf, "{}: {}", record.level().to_string().to_uppercase(), record.args())
+        // Set up custom format with optional colors
+        let use_color_copy = use_color;
+        builder.format(move |buf, record| {
+            let level_str = record.level().as_str();
+            let formatted_level = format_level(level_str, use_color_copy);
+            writeln!(buf, "{}: {}", formatted_level, record.args())
         });
 
         // Set the filter level from SHCLAP_LOG, default to info
         let filter_level = std::env::var("SHCLAP_LOG").unwrap_or_else(|_| "info".to_string());
         builder.parse_filters(&filter_level);
 
-        // Ensure output goes to stderr and detect TTY
+        // Ensure output goes to stderr
         builder.target(env_logger::Target::Stderr);
 
         // Initialize the logger

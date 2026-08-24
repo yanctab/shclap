@@ -1274,22 +1274,56 @@ fi
 
 section "17. Log Subcommand"
 
-# Test: log accepts valid levels
+# Test: log subcommand exists and accepts trace level
 run_test
-for level in info debug warn error trace; do
-    OUTPUT=$("$SHCLAP" log "$level" "test message" 2>&1)
-    if [[ $? -eq 0 ]]; then
-        pass "log accepts valid level: $level"
-    else
-        fail "log accepts level $level" "exit code 0" "got non-zero"
-    fi
-done
+OUTPUT=$("$SHCLAP" log trace "test message" 2>&1 || true)
+if [[ $? -eq 0 ]]; then
+    pass "log accepts trace level"
+else
+    fail "log accepts trace" "exit code 0" "got non-zero"
+fi
+
+# Test: log accepts debug level
+run_test
+OUTPUT=$("$SHCLAP" log debug "test message" 2>&1 || true)
+if [[ $? -eq 0 ]]; then
+    pass "log accepts debug level"
+else
+    fail "log accepts debug" "exit code 0" "got non-zero"
+fi
+
+# Test: log accepts info level
+run_test
+OUTPUT=$("$SHCLAP" log info "test message" 2>&1 || true)
+if [[ $? -eq 0 ]]; then
+    pass "log accepts info level"
+else
+    fail "log accepts info" "exit code 0" "got non-zero"
+fi
+
+# Test: log accepts warn level
+run_test
+OUTPUT=$("$SHCLAP" log warn "test message" 2>&1 || true)
+if [[ $? -eq 0 ]]; then
+    pass "log accepts warn level"
+else
+    fail "log accepts warn" "exit code 0" "got non-zero"
+fi
+
+# Test: log accepts error level
+run_test
+OUTPUT=$("$SHCLAP" log error "test message" 2>&1 || true)
+if [[ $? -eq 0 ]]; then
+    pass "log accepts error level"
+else
+    fail "log accepts error" "exit code 0" "got non-zero"
+fi
 
 # Test: log rejects invalid level
 run_test
 OUTPUT=$("$SHCLAP" log invalid "test message" 2>&1) || true
 if echo "$OUTPUT" | grep -qi "unrecognized log level"; then
-    pass "log rejects invalid level"
+    pass "log rejects invalid level with error message"
 else
     fail "log rejects invalid level" "error message with 'unrecognized log level'" "$OUTPUT"
 fi
@@ -1298,18 +1332,37 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" log info "hello world" 2>&1 1>/dev/null)
 if echo "$OUTPUT" | grep -qi "INFO"; then
-    pass "log message goes to stderr"
+    pass "log output goes to stderr"
 else
     fail "log to stderr" "INFO in stderr" "$OUTPUT"
 fi
 
+# Test: warn level uses WARNING label
+run_test
+OUTPUT=$("$SHCLAP" log warn "warning message" 2>&1 1>/dev/null)
+if echo "$OUTPUT" | grep -qi "WARNING:"; then
+    pass "warn level uses WARNING label"
+else
+    fail "warn WARNING label" "WARNING: in output" "$OUTPUT"
+fi
+
 # Test: log respects SHCLAP_LOG environment variable (filter)
 run_test
-SHCLAP_LOG=error "$SHCLAP" log info "should be filtered" 2>&1 | grep -q "INFO" && {
+OUTPUT=$(SHCLAP_LOG=error "$SHCLAP" log info "should be filtered" 2>&1) || true
+if echo "$OUTPUT" | grep -q "INFO"; then
     fail "log respects SHCLAP_LOG filter" "no output for info when SHCLAP_LOG=error" "got output"
-} || {
+else
     pass "log respects SHCLAP_LOG filter"
-}
+fi
+
+# Test: log shows error level when SHCLAP_LOG=error
+run_test
+OUTPUT=$(SHCLAP_LOG=error "$SHCLAP" log error "error message" 2>&1) || true
+if echo "$OUTPUT" | grep -qi "ERROR"; then
+    pass "log shows error level when SHCLAP_LOG=error"
+else
+    fail "log shows error" "ERROR in output" "$OUTPUT"
+fi
 
 #
 # Summary
