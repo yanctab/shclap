@@ -28,6 +28,10 @@ shclap parse --config=<JSON> [--name=<NAME>] [--prefix=<PREFIX>] -- [ARGS...]
 source $(shclap parse --config='{"args":[]}' --name=myapp -- "$@")
 ```
 
+**Note on Container Bootstrap:**
+
+When your configuration includes a `container` block (schema v2 only), shclap automatically captures your current working directory, bind-mounts it read-write into the container, and sets it as the container's `--workdir`. This ensures relative paths work correctly inside the container. You can override this behavior via `container.args`. See [Container Bootstrap](container.md) for details.
+
 ### `shclap help`
 
 Display help information for your script (using the config).
