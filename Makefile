@@ -6,7 +6,7 @@ INSTALL_PATH := /usr/local/bin
 MUSL_TARGET := x86_64-unknown-linux-musl
 RUST_VERSION := 1.85.0
 
-.PHONY: help setup-build-env build release test unit-test integration-test fmt fmt-check lint check install uninstall clean deb install-deb uninstall-deb coverage
+.PHONY: help setup-build-env build release test unit-test integration-test fmt fmt-check lint check install uninstall clean deb install-deb uninstall-deb coverage tag-release
 
 .DEFAULT_GOAL := help
 
@@ -37,6 +37,19 @@ build:
 ## release - Build static release binary with musl
 release:
 	$(CARGO) build --release --target $(MUSL_TARGET)
+
+## tag-release - Tag and push a release (requires VERSION=x.y.z)
+tag-release:
+	@if [ -z "$(VERSION)" ]; then echo "ERROR: VERSION not set (e.g., make tag-release VERSION=0.3.2)"; exit 1; fi
+	@if ! git diff --quiet Cargo.toml Cargo.lock 2>/dev/null; then echo "ERROR: Cargo.toml or Cargo.lock has uncommitted changes"; exit 1; fi
+	sed -i 's/^version = "[^"]*"/version = "$(VERSION)"/' Cargo.toml
+	$(CARGO) update -p $(BINARY_NAME)
+	git add Cargo.toml Cargo.lock
+	git commit -m "chore(release): bump version to $(VERSION)"
+	git tag v$(VERSION)
+	git push origin main
+	git push origin v$(VERSION)
+	@echo "Released v$(VERSION)"
 
 ## test - Run all tests (unit + integration)
 test: unit-test integration-test
