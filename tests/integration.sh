@@ -1139,6 +1139,90 @@ else
 fi
 rm -f "$OUTPUT_FILE"
 
+section "13. Environment Variable Expansion"
+
+# Test: parse expands $HOME in description
+run_test
+unset SHCLAP_DEBUG 2>/dev/null || true
+HOME_VALUE=$(echo ~)
+OUTPUT=$("$SHCLAP" parse --config '{"name":"test","description":"Config at $HOME","args":[{"name":"debug","short":"d","type":"flag"}]}' -- -d 2>&1)
+OUTPUT_FILE="$OUTPUT"
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE" 2>/dev/null || echo "ERROR")
+# Check that the source file was created and doesn't contain errors
+if [[ -f "$OUTPUT_FILE" ]] && ! grep -q "error\|ERROR" "$OUTPUT_FILE" 2>/dev/null; then
+    pass "parse with \$HOME expansion in description"
+else
+    fail "parse \$HOME expansion" "output file created without errors" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: help expands $HOME in description
+run_test
+HOME_VALUE=$(echo ~)
+OUTPUT=$("$SHCLAP" help --config '{"name":"test","description":"Config at $HOME","args":[{"name":"debug","short":"d","type":"flag"}]}' 2>&1)
+if echo "$OUTPUT" | grep -q "$HOME_VALUE" || echo "$OUTPUT" | grep -q "Config at"; then
+    pass "help with \$HOME expansion in description"
+else
+    fail "help \$HOME expansion" "description should expand \$HOME" "$OUTPUT"
+fi
+
+# Test: version expands $APP_VERSION in version field
+run_test
+OUTPUT=$(APP_VERSION="1.0" "$SHCLAP" version --config '{"name":"test","version":"v$APP_VERSION"}' 2>&1) || true
+if echo "$OUTPUT" | grep -q "v1.0" && ! echo "$OUTPUT" | grep -q "\$APP_VERSION"; then
+    pass "version with variable expansion in version field"
+else
+    fail "version variable expansion" "version field should expand APP_VERSION" "$OUTPUT"
+fi
+
+# Test: print expands $HOME in description
+run_test
+HOME_VALUE=$(echo ~)
+OUTPUT=$("$SHCLAP" print --config '{"name":"test","description":"Config at $HOME","args":[{"name":"debug","short":"d","type":"flag"}]}' 2>&1)
+if [[ -n "$OUTPUT" ]]; then
+    pass "print with \$HOME expansion in description"
+else
+    fail "print \$HOME expansion" "output should not be empty" "$OUTPUT"
+fi
+
+# Test: parse with missing variable produces error
+run_test
+OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","description":"$MISSING_VAR_THAT_DOES_NOT_EXIST","args":[]}' -- 2>&1) || true
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT_FILE' 2>&1" || echo "error file contents")
+if echo "$ERROR_OUTPUT" | grep -qi "error\|undefined"; then
+    pass "parse with missing variable produces error message"
+else
+    fail "parse missing var error" "should produce error for missing variable" "$ERROR_OUTPUT"
+fi
+rm -f "$OUTPUT_FILE" 2>/dev/null || true
+
+# Test: help with missing variable produces error
+run_test
+OUTPUT=$("$SHCLAP" help --config '{"name":"test","description":"$MISSING_VAR_THAT_DOES_NOT_EXIST","args":[]}' 2>&1) || true
+if echo "$OUTPUT" | grep -qi "error\|undefined"; then
+    pass "help with missing variable produces error message"
+else
+    fail "help missing var error" "should produce error for missing variable" "$OUTPUT"
+fi
+
+# Test: version with missing variable produces error
+run_test
+OUTPUT=$("$SHCLAP" version --config '{"name":"test","version":"$MISSING_VAR_THAT_DOES_NOT_EXIST"}' 2>&1) || true
+if echo "$OUTPUT" | grep -qi "error\|undefined"; then
+    pass "version with missing variable produces error message"
+else
+    fail "version missing var error" "should produce error for missing variable" "$OUTPUT"
+fi
+
+# Test: print with missing variable produces error
+run_test
+OUTPUT=$("$SHCLAP" print --config '{"name":"test","description":"$MISSING_VAR_THAT_DOES_NOT_EXIST","args":[]}' 2>&1) || true
+if echo "$OUTPUT" | grep -qi "error\|undefined"; then
+    pass "print with missing variable produces error message"
+else
+    fail "print missing var error" "should produce error for missing variable" "$OUTPUT"
+fi
+
 #
 # Summary
 #

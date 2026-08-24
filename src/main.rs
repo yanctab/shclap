@@ -91,12 +91,17 @@ fn main() -> Result<()> {
             args,
         } => {
             // Handle config parsing errors
-            let cfg = match Config::from_json(&config) {
+            let mut cfg = match Config::from_json(&config) {
                 Ok(c) => c,
                 Err(e) => {
                     return output_error(&format!("failed to parse JSON config: {}", e));
                 }
             };
+
+            // Handle expansion errors
+            if let Err(e) = cfg.expand_vars(|name| std::env::var(name).ok()) {
+                return output_error(&format!("environment variable expansion failed: {}", e));
+            }
 
             // Handle validation errors
             if let Err(e) = cfg.validate() {
@@ -178,7 +183,10 @@ fn main() -> Result<()> {
             }
         }
         Commands::Help { config, name } => {
-            let cfg = Config::from_json(&config).context("failed to parse config JSON")?;
+            let mut cfg = Config::from_json(&config).context("failed to parse config JSON")?;
+
+            cfg.expand_vars(|name| std::env::var(name).ok())
+                .context("environment variable expansion failed")?;
 
             // Determine effective name: CLI --name takes priority over config name
             let effective_name = match (name.as_deref(), cfg.name.as_deref()) {
@@ -194,7 +202,10 @@ fn main() -> Result<()> {
             print!("{}", generate_help(&cfg, &effective_name));
         }
         Commands::Version { config, name } => {
-            let cfg = Config::from_json(&config).context("failed to parse config JSON")?;
+            let mut cfg = Config::from_json(&config).context("failed to parse config JSON")?;
+
+            cfg.expand_vars(|name| std::env::var(name).ok())
+                .context("environment variable expansion failed")?;
 
             // Determine effective name: CLI --name takes priority over config name
             let effective_name = match (name.as_deref(), cfg.name.as_deref()) {
@@ -214,7 +225,10 @@ fn main() -> Result<()> {
             name,
             prefix,
         } => {
-            let cfg = Config::from_json(&config).context("failed to parse config JSON")?;
+            let mut cfg = Config::from_json(&config).context("failed to parse config JSON")?;
+
+            cfg.expand_vars(|name| std::env::var(name).ok())
+                .context("environment variable expansion failed")?;
 
             // Determine effective name: CLI --name takes priority over config name
             let effective_name = match (name.as_deref(), cfg.name.as_deref()) {
