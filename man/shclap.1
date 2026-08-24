@@ -66,6 +66,16 @@ directly to stdout.
 Reconstruct and print how the script was called by reading current
 environment variables. Useful for logging or debugging. Converts env
 var values back to their flag/option format.
+.TP
+.B log
+Write a leveled, colored log message to stderr. Respects
+.B SHCLAP_LOG
+(minimum level) and
+.B SHCLAP_LOG_STYLE
+(color control) environment variables. Available via shell helper functions
+after sourcing
+.B shclap parse
+output.
 .SH OPTIONS
 .SS "Parse Command Options"
 .TP
@@ -570,6 +580,52 @@ If a referenced variable does not exist in the host environment,
 .B shclap
 will produce an error message during the respective operation.
 Expansion occurs before validation, ensuring that missing variables are caught early.
+.SH LOGGING
+.B shclap
+provides leveled logging capabilities via the
+.B log
+subcommand and shell helper functions. When you source the output of
+.BR "shclap parse" ,
+five helper functions become available:
+.BR log_trace ,
+.BR log_debug ,
+.BR log_info ,
+.BR log_warn ,
+and
+.BR log_error .
+.PP
+Log output is written to stderr and can be controlled via environment variables:
+.TP
+.B SHCLAP_LOG
+Minimum log level to display. Valid values:
+.BR trace ,
+.BR debug ,
+.BR info
+(default),
+.BR warn ,
+.BR error ,
+or
+.BR off .
+.TP
+.B SHCLAP_LOG_STYLE
+Color style:
+.BR auto
+(default; use color for TTY),
+.BR always
+(force color), or
+.BR never
+(disable color).
+.PP
+Example usage:
+.RS
+.nf
+source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+log_info "Application started"
+log_warn "Warning message"
+.fi
+.RE
+.PP
+See the Logging reference page in the documentation for more details.
 .SH SEE ALSO
 .BR bash (1),
 .BR getopt (1)
