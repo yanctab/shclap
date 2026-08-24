@@ -114,6 +114,46 @@ echo "Running: $(shclap print --config "$CONFIG" --name deploy)"
 - Positional arguments appear at the end
 - Values with special characters are properly quoted
 
+### `shclap log`
+
+Write a leveled, colored log message to stderr. Available through shell helper functions after `source $(shclap parse ...)`, or called directly.
+
+```bash
+shclap log <LEVEL> <MESSAGE...>
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `<LEVEL>` | Log level: `trace`, `debug`, `info`, `warn`, or `error` |
+| `<MESSAGE...>` | Message to log (multiple arguments are joined with spaces) |
+
+**Environment Variables:**
+
+- `SHCLAP_LOG` — Minimum log level to display (default: `info`; set to `off` to silence)
+- `SHCLAP_LOG_STYLE` — Color style: `auto` (default), `always`, or `never`
+
+**Example:**
+
+```bash
+# Direct call
+shclap log info "Application started"
+shclap log warn "This is a warning"
+
+# Via shell helper (after sourcing shclap parse output)
+log_info "Using helper function"
+log_error "An error occurred"
+
+# Control via environment variables
+export SHCLAP_LOG=warn    # Only warnings and errors
+export SHCLAP_LOG_STYLE=never  # Disable colors
+log_info "Not shown (below threshold)"
+log_warn "Shown"
+```
+
+See [Logging](logging.md) for more details on the helper functions and logging configuration.
+
 ## Options
 
 ### `--config=<JSON>`
@@ -368,4 +408,5 @@ source $(shclap parse --config "$CONFIG" --prefix="APP_" -- "$@")
 - [Configuration Reference](configuration.md) - Full JSON schema reference
 - [Schema Reference](schema.md) - Schema versioning and v2 features
 - [Environment Variables](environment-variables.md) - Environment variable handling
+- [Logging](logging.md) - Logging configuration and helper functions
 - [Examples](examples.md) - Complete working examples

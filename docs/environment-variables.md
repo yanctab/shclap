@@ -215,6 +215,76 @@ fi
 
 To enable environment variable fallback, add `"schema_version": 2` to your configuration.
 
+---
+
+## Logging Control Variables
+
+When you use `shclap parse` and source its output, your shell session gains access to logging helper functions (`log_error`, `log_warn`, `log_info`, `log_debug`, `log_trace`). The behavior of these functions and the `shclap log` subcommand is controlled by two environment variables:
+
+### SHCLAP_LOG
+
+Controls the minimum log level displayed by the logging functions.
+
+| Value | Behavior |
+|-------|----------|
+| `trace` | Display trace, debug, info, warn, and error messages |
+| `debug` | Display debug, info, warn, and error messages |
+| `info` | Display info, warn, and error messages (default) |
+| `warn` | Display warn and error messages only |
+| `error` | Display error messages only |
+| `off` | Silence all logging output |
+
+**Example:**
+
+```bash
+#!/bin/bash
+CONFIG='...'
+source $(shclap parse --config "$CONFIG" -- "$@")
+
+export SHCLAP_LOG=warn
+log_info "Not shown (below threshold)"    # Silenced
+log_warn "Warning shown"                  # Displayed
+log_error "Error shown"                   # Displayed
+```
+
+**Default:** `info` (if not set)
+
+### SHCLAP_LOG_STYLE
+
+Controls whether log output includes ANSI color codes for styling.
+
+| Value | Behavior |
+|-------|----------|
+| `auto` | Use color only if stderr is connected to a terminal (TTY) |
+| `always` | Always include color codes |
+| `never` | Never include color codes |
+
+**Example:**
+
+```bash
+# Force colors when piping
+export SHCLAP_LOG_STYLE=always
+log_info "Colored message" | less -R
+
+# Disable colors for log files
+export SHCLAP_LOG_STYLE=never
+log_info "Plain text" >> app.log
+```
+
+**Default:** `auto` (detect TTY status automatically)
+
+### Color Mapping
+
+When colors are enabled, log levels are displayed in these colors:
+
+| Level | Color |
+|-------|-------|
+| `TRACE` | Cyan |
+| `DEBUG` | Magenta |
+| `INFO` | Green |
+| `WARN` / `WARNING` | Yellow |
+| `ERROR` | Red |
+
 ## See Also
 
 - [Schema Reference](schema.md) - Schema versions and v2 features
