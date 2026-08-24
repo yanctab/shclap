@@ -1053,6 +1053,55 @@ else
 fi
 rm -f "$OUTPUT_FILE"
 
+# Test: Container reexec output contains CWD mount and --workdir, appears before container.args
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"test-image:latest","args":["--network","host"]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- -v 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+
+# Check for all three CWD-related lines
+cwd_var_present=false
+cwd_mount_present=false
+cwd_workdir_present=false
+container_args_present=false
+
+if echo "$OUTPUT_CONTENTS" | grep -qF '_shclap_cwd='; then
+    cwd_var_present=true
+fi
+
+if echo "$OUTPUT_CONTENTS" | grep -qF '$_shclap_cwd:$_shclap_cwd'; then
+    cwd_mount_present=true
+fi
+
+if echo "$OUTPUT_CONTENTS" | grep -qF -- '--workdir "$_shclap_cwd"'; then
+    cwd_workdir_present=true
+fi
+
+if echo "$OUTPUT_CONTENTS" | grep -qF -- '--network'; then
+    container_args_present=true
+fi
+
+# Extract line numbers to verify ordering
+cwd_var_line=$(echo "$OUTPUT_CONTENTS" | grep -nF '_shclap_cwd=' | head -1 | cut -d: -f1)
+cwd_mount_line=$(echo "$OUTPUT_CONTENTS" | grep -nF '$_shclap_cwd:$_shclap_cwd' | head -1 | cut -d: -f1)
+cwd_workdir_line=$(echo "$OUTPUT_CONTENTS" | grep -nF -- '--workdir "$_shclap_cwd"' | head -1 | cut -d: -f1)
+container_args_line=$(echo "$OUTPUT_CONTENTS" | grep -nF -- '--network' | head -1 | cut -d: -f1)
+
+ordering_correct=true
+if [[ -z "$cwd_var_line" || -z "$cwd_mount_line" || -z "$cwd_workdir_line" || -z "$container_args_line" ]]; then
+    ordering_correct=false
+elif [[ $cwd_workdir_line -ge $container_args_line ]]; then
+    ordering_correct=false
+fi
+
+if [[ "$cwd_var_present" == "true" && "$cwd_mount_present" == "true" && "$cwd_workdir_present" == "true" && "$ordering_correct" == "true" ]]; then
+    pass "Container reexec output contains CWD mount and --workdir, appearing before container.args"
+else
+    fail "Container CWD mount and workdir" "All CWD lines present and ordered before container.args" "var=$cwd_var_present mount=$cwd_mount_present workdir=$cwd_workdir_present order=$ordering_correct"
+fi
+rm -f "$OUTPUT_FILE"
+
 # Test: generic bypass signal (/.dockerenv) emits exactly one diagnostic line to stderr and proceeds to argument parsing
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
