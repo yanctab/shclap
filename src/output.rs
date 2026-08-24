@@ -297,6 +297,7 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Co
         "echo \"shclap: bootstrapping into {rt}:{image}\" >&2\n",
         image = container.image
     ));
+    s.push_str("_shclap_cwd=$(pwd)\n");
     s.push_str("set -x\n");
     s.push_str(&format!("exec {rt} run --rm \\\n"));
 
@@ -306,6 +307,8 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Co
     s.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
     s.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
     s.push_str("  -e SHCLAP_IN_CONTAINER=1 \\\n");
+    s.push_str("  -v \"$_shclap_cwd:$_shclap_cwd\" \\\n");
+    s.push_str("  --workdir \"$_shclap_cwd\" \\\n");
 
     // Collect environment variable names to forward
     let mut forwarded_vars: HashSet<String> = HashSet::new();
@@ -1152,5 +1155,57 @@ mod tests {
 
         // Should contain --pull=missing (the verbatim string for PullPolicy::Missing) immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));
+    }
+
+    #[test]
+    fn test_generate_container_reexec_emits_cwd_mount_and_workdir() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec!["-v".to_string(), "/data:/data".to_string()],
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+
+        let output = generate_container_reexec_string(&container, &config);
+
+        // Check that _shclap_cwd=$(pwd) appears before exec line
+        assert!(output.contains("_shclap_cwd=$(pwd)"));
+        let cwd_pos = output.find("_shclap_cwd=$(pwd)").unwrap();
+        let exec_pos = output.find("exec docker run").unwrap();
+        assert!(
+            cwd_pos < exec_pos,
+            "_shclap_cwd=$(pwd) must appear before exec line"
+        );
+
+        // Check that CWD volume mount appears
+        assert!(output.contains("-v \"$_shclap_cwd:$_shclap_cwd\" \\"));
+
+        // Check that CWD volume mount has no :ro suffix
+        assert!(!output.contains("-v \"$_shclap_cwd:$_shclap_cwd:ro\""));
+
+        // Check that --workdir line appears
+        assert!(output.contains("--workdir \"$_shclap_cwd\" \\"));
+
+        // Check ordering: SHCLAP_IN_CONTAINER before CWD volume
+        let container_env_pos = output.find("-e SHCLAP_IN_CONTAINER=1").unwrap();
+        let vol_pos = output.find("-v \"$_shclap_cwd:$_shclap_cwd\" \\").unwrap();
+        assert!(
+            container_env_pos < vol_pos,
+            "SHCLAP_IN_CONTAINER must come before CWD volume"
+        );
+
+        // Check ordering: CWD volume before workdir
+        let workdir_pos = output.find("--workdir \"$_shclap_cwd\" \\").unwrap();
+        assert!(vol_pos < workdir_pos, "CWD volume must come before workdir");
+
+        // Check ordering: workdir before container.args
+        let arg_pos = output.find("/data:/data").unwrap();
+        assert!(
+            workdir_pos < arg_pos,
+            "workdir must come before container.args"
+        );
     }
 }
