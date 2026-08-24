@@ -260,6 +260,27 @@ Never pull; fail if the image is not cached locally.
 .TP
 .B args
 Array of extra flags to pass to the runtime. Example: ["--network", "host"]
+.SS "Working Directory Bind-Mount"
+When shclap performs container bootstrap, it automatically captures the caller's current working directory using
+.BR pwd ,
+bind-mounts this directory read-write into the container at the same path, and sets the container's
+.B --workdir
+to this directory. This ensures that relative paths in the script work correctly inside the container.
+.PP
+The emitted code includes:
+.RS
+.nf
+_shclap_cwd=$(pwd)
+\-v "$_shclap_cwd:$_shclap_cwd" \\
+\-\-workdir "$_shclap_cwd" \\
+.fi
+.RE
+.PP
+To use a different working directory inside the container, pass an explicit
+.B \-\-workdir
+flag via
+.B container.args
+in the configuration. This shadows the automatic CWD mount.
 .SH OUTPUT FORMAT
 .SS "Scalar Values"
 Single values are exported as quoted strings:
