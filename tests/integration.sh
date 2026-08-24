@@ -1197,8 +1197,8 @@ HOME_VALUE=$(echo ~)
 OUTPUT=$("$SHCLAP" parse --config '{"name":"test","description":"Config at $HOME","args":[{"name":"debug","short":"d","type":"flag"}]}' -- -d 2>&1)
 OUTPUT_FILE="$OUTPUT"
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE" 2>/dev/null || echo "ERROR")
-# Check that the source file was created and doesn't contain errors
-if [[ -f "$OUTPUT_FILE" ]] && ! grep -q "error\|ERROR" "$OUTPUT_FILE" 2>/dev/null; then
+# Check that the source file was created and doesn't contain shclap error messages (exit 1 is the error marker)
+if [[ -f "$OUTPUT_FILE" ]] && ! grep -q "exit 1" "$OUTPUT_FILE" 2>/dev/null; then
     pass "parse with \$HOME expansion in description"
 else
     fail "parse \$HOME expansion" "output file created without errors" "$OUTPUT_CONTENTS"
@@ -1363,6 +1363,134 @@ if echo "$OUTPUT" | grep -qi "ERROR"; then
 else
     fail "log shows error" "ERROR in output" "$OUTPUT"
 fi
+
+section "22. Log Helper Functions"
+
+# Set up PATH to include shclap binary for log helper tests
+export PATH="$(dirname "$SHCLAP"):$PATH"
+
+# AC1: After source $(shclap parse ...), declare -F log_info exits 0
+run_test
+unset SHCLAP_VERBOSE 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+if declare -F log_info >/dev/null 2>&1; then
+    pass "log_info helper function is defined after parse"
+else
+    fail "log_info defined" "declare -F log_info should exit 0" "function not defined"
+fi
+
+# Test: all five log helper functions are defined
+run_test
+unset SHCLAP_VERBOSE 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+declare -F log_error >/dev/null 2>&1 && \
+declare -F log_warn >/dev/null 2>&1 && \
+declare -F log_info >/dev/null 2>&1 && \
+declare -F log_debug >/dev/null 2>&1 && \
+declare -F log_trace >/dev/null 2>&1
+if [[ $? -eq 0 ]]; then
+    pass "all five log helper functions are defined"
+else
+    fail "all log helpers defined" "all five functions should be defined" "some functions missing"
+fi
+
+# AC2: SHCLAP_LOG=info log_info "msg" writes INFO: msg to stderr
+run_test
+unset SHCLAP_VERBOSE 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+OUTPUT=$(SHCLAP_LOG=info log_info "test message" 2>&1 1>/dev/null)
+if echo "$OUTPUT" | grep -q "INFO: test message"; then
+    pass "log_info with SHCLAP_LOG=info outputs INFO: msg"
+else
+    fail "log_info output" "INFO: test message" "$OUTPUT"
+fi
+
+# AC3: SHCLAP_LOG=error log_info "msg" produces no output
+run_test
+unset SHCLAP_VERBOSE 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+OUTPUT=$(SHCLAP_LOG=error log_info "test message" 2>&1 1>/dev/null) || true
+if [[ -z "$OUTPUT" ]]; then
+    pass "log_info with SHCLAP_LOG=error produces no output"
+else
+    fail "log_info filtered output" "no output" "got: $OUTPUT"
+fi
+
+# AC4: SHCLAP_LOG=off silences all five helpers
+run_test
+unset SHCLAP_VERBOSE 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+OUTPUT=$(SHCLAP_LOG=off log_error "err" 2>&1 1>/dev/null) || true
+OUTPUT2=$(SHCLAP_LOG=off log_warn "warn" 2>&1 1>/dev/null) || true
+OUTPUT3=$(SHCLAP_LOG=off log_info "info" 2>&1 1>/dev/null) || true
+OUTPUT4=$(SHCLAP_LOG=off log_debug "debug" 2>&1 1>/dev/null) || true
+OUTPUT5=$(SHCLAP_LOG=off log_trace "trace" 2>&1 1>/dev/null) || true
+if [[ -z "$OUTPUT" && -z "$OUTPUT2" && -z "$OUTPUT3" && -z "$OUTPUT4" && -z "$OUTPUT5" ]]; then
+    pass "SHCLAP_LOG=off silences all five helpers"
+else
+    fail "SHCLAP_LOG=off" "all helpers should be silent" "got output"
+fi
+
+# AC5: User-defined log_info declared after sourcing shadows the emitted definition
+run_test
+unset SHCLAP_VERBOSE 2>/dev/null || true
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+log_info() { echo "CUSTOM_LOG"; }
+OUTPUT=$(log_info "test" 2>&1 1>&2)
+if echo "$OUTPUT" | grep -q "CUSTOM_LOG"; then
+    pass "user-defined log_info shadows the emitted definition"
+else
+    fail "log_info shadowing" "CUSTOM_LOG" "$OUTPUT"
+fi
+
+# AC6: Helper functions do NOT appear in error output
+run_test
+unset SHCLAP_VERBOSE 2>/dev/null || true
+OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- --invalid-flag 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exit 1" && ! echo "$OUTPUT_CONTENTS" | grep -q "log_info\|log_error\|log_warn\|log_debug\|log_trace"; then
+    pass "log helpers do NOT appear in error output"
+else
+    fail "helpers in error output" "should have exit 1, no log helpers" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: Helper functions do NOT appear in help output
+run_test
+unset SHCLAP_VERBOSE 2>/dev/null || true
+OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- --help 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exit 0" && ! echo "$OUTPUT_CONTENTS" | grep -q "log_info\|log_error\|log_warn\|log_debug\|log_trace"; then
+    pass "log helpers do NOT appear in help output"
+else
+    fail "helpers in help output" "should have exit 0, no log helpers" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: Helper functions do NOT appear in version output
+run_test
+unset SHCLAP_VERBOSE 2>/dev/null || true
+OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","version":"1.0.0","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- --version 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exit 0" && ! echo "$OUTPUT_CONTENTS" | grep -q "log_info\|log_error\|log_warn\|log_debug\|log_trace"; then
+    pass "log helpers do NOT appear in version output"
+else
+    fail "helpers in version output" "should have exit 0, no log helpers" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
+
+# Test: Helper functions do NOT appear in container reexec output
+run_test
+unset SHCLAP_VERBOSE 2>/dev/null || true
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+if echo "$OUTPUT_CONTENTS" | grep -q "exec docker run" && ! echo "$OUTPUT_CONTENTS" | grep -q "log_info\|log_error\|log_warn\|log_debug\|log_trace"; then
+    pass "log helpers do NOT appear in container reexec output"
+else
+    fail "helpers in container output" "should have exec docker run, no log helpers" "$OUTPUT_CONTENTS"
+fi
+rm -f "$OUTPUT_FILE"
 
 #
 # Summary

@@ -14,6 +14,17 @@ const HELP_DELIMITER: &str = "SHCLAP_HELP";
 /// Heredoc delimiter for version output.
 const VERSION_DELIMITER: &str = "SHCLAP_VERSION";
 
+/// Shell code for log helper functions.
+/// These five functions are defined when sourcing parse output,
+/// allowing shell scripts to use log_error, log_warn, log_info, log_debug, log_trace.
+/// Each helper delegates to `shclap log <level>` and respects `SHCLAP_LOG`.
+const LOG_HELPERS: &str = r#"log_error() { shclap log error "$@"; }
+log_warn() { shclap log warn "$@"; }
+log_info() { shclap log info "$@"; }
+log_debug() { shclap log debug "$@"; }
+log_trace() { shclap log trace "$@"; }
+"#;
+
 /// Escape a string for safe use in a shell double-quoted context.
 ///
 /// Escapes: $, `, \, ", and !
@@ -63,6 +74,9 @@ pub fn generate_output_string(
 ) -> String {
     let mut output = String::new();
 
+    // Prepend log helper functions
+    output.push_str(LOG_HELPERS);
+
     // Output subcommand first if present
     if let Some(subcmd) = subcommand {
         output.push_str(&format!(
@@ -109,6 +123,9 @@ pub fn generate_output_legacy(parsed: &HashMap<String, String>, prefix: &str) ->
 /// Generate the output content as a string using legacy format (for testing).
 pub fn generate_output_string_legacy(parsed: &HashMap<String, String>, prefix: &str) -> String {
     let mut output = String::new();
+
+    // Prepend log helper functions
+    output.push_str(LOG_HELPERS);
 
     // Sort keys for deterministic output
     let mut keys: Vec<_> = parsed.keys().collect();
