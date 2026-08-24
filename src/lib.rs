@@ -8,6 +8,7 @@ pub mod config;
 pub mod container;
 pub mod expand;
 pub mod help;
+pub mod logging;
 pub mod output;
 pub mod parser;
 

@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use shclap::{
     detect_container_with, generate_container_reexec_output, generate_error_output, generate_help,
     generate_help_output, generate_output, generate_print, generate_version,
-    generate_version_output, parse_args, Config, ContainerSignal, ParseOutcome,
+    generate_version_output, logging, parse_args, Config, ContainerSignal, ParseOutcome,
 };
 
 /// Clap-style argument parsing for shell scripts.
@@ -76,6 +76,16 @@ enum Commands {
         /// Environment variable prefix (overrides config)
         #[arg(long)]
         prefix: Option<String>,
+    },
+
+    /// Write a leveled log message to stderr
+    Log {
+        /// Log level (trace, debug, info, warn, error)
+        level: String,
+
+        /// Message parts to log
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        message: Vec<String>,
     },
 }
 
@@ -247,6 +257,9 @@ fn main() -> Result<()> {
                 "{}",
                 generate_print(&cfg, &effective_name, effective_prefix)
             );
+        }
+        Commands::Log { level, message } => {
+            logging::run(&level, &message)?;
         }
     }
 
@@ -582,6 +595,19 @@ mod tests {
                 );
             }
             _ => panic!("Expected Parse command"),
+        }
+    }
+
+    #[test]
+    fn test_log_subcommand_parses_level_and_message() {
+        let cli = Cli::try_parse_from(["shclap", "log", "info", "hello", "world"]).unwrap();
+
+        match cli.command {
+            Commands::Log { level, message } => {
+                assert_eq!(level, "info");
+                assert_eq!(message, vec!["hello", "world"]);
+            }
+            _ => panic!("Expected Log command"),
         }
     }
 }
