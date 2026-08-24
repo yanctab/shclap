@@ -25,6 +25,11 @@ strip = true
 lto = true
 codegen-units = 1
 
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-x86_64-linux-musl"
+pkg-fmt = "bin"
+bin-dir = "{ bin }{ binary-ext }"
+
 [package.metadata.deb]
 maintainer = "yanctab <yanctab@users.noreply.github.com>"
 copyright = "2026, yanctab"
