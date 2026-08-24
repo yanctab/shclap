@@ -498,7 +498,10 @@ impl Config {
     ///
     /// Identifier fields (`name`, `prefix`, `long`, `schema_version`, type/enum discriminants)
     /// are not expanded.
-    pub fn expand_vars(&mut self, lookup: impl Fn(&str) -> Option<String>) -> Result<(), ConfigError> {
+    pub fn expand_vars(
+        &mut self,
+        lookup: impl Fn(&str) -> Option<String>,
+    ) -> Result<(), ConfigError> {
         // Expand Config::description
         if let Some(ref mut desc) = self.description {
             *desc = crate::expand::expand(desc, &lookup).map_err(|e| ConfigError::ExpandError {
@@ -509,10 +512,11 @@ impl Config {
 
         // Expand Config::version
         if let Some(ref mut version) = self.version {
-            *version = crate::expand::expand(version, &lookup).map_err(|e| ConfigError::ExpandError {
-                field: "version".to_string(),
-                source: e,
-            })?;
+            *version =
+                crate::expand::expand(version, &lookup).map_err(|e| ConfigError::ExpandError {
+                    field: "version".to_string(),
+                    source: e,
+                })?;
         }
 
         // Expand each ArgConfig's default, help, and choices
@@ -524,10 +528,11 @@ impl Config {
         for i in 0..self.subcommands.len() {
             let subcmd_name = self.subcommands[i].name.clone();
             if let Some(ref mut help) = self.subcommands[i].help {
-                *help = crate::expand::expand(help, &lookup).map_err(|e| ConfigError::ExpandError {
-                    field: format!("subcommands[{}].help", subcmd_name),
-                    source: e,
-                })?;
+                *help =
+                    crate::expand::expand(help, &lookup).map_err(|e| ConfigError::ExpandError {
+                        field: format!("subcommands[{}].help", subcmd_name),
+                        source: e,
+                    })?;
             }
 
             for j in 0..self.subcommands[i].args.len() {
@@ -545,58 +550,61 @@ impl Config {
             })?;
 
             for arg in &mut container.args {
-                *arg = crate::expand::expand(arg, &lookup).map_err(|e| ConfigError::ExpandError {
-                    field: "container.args".to_string(),
-                    source: e,
-                })?;
+                *arg =
+                    crate::expand::expand(arg, &lookup).map_err(|e| ConfigError::ExpandError {
+                        field: "container.args".to_string(),
+                        source: e,
+                    })?;
             }
         }
 
         Ok(())
     }
-
 }
 
 /// Helper function to expand an ArgConfig's expandable fields.
-fn expand_arg(arg: &mut ArgConfig, lookup: &impl Fn(&str) -> Option<String>) -> Result<(), ConfigError> {
-        // Expand ArgConfig::default
-        if let Some(ref mut default) = arg.default {
-            *default = crate::expand::expand(default, lookup).map_err(|e| ConfigError::ExpandError {
+fn expand_arg(
+    arg: &mut ArgConfig,
+    lookup: &impl Fn(&str) -> Option<String>,
+) -> Result<(), ConfigError> {
+    // Expand ArgConfig::default
+    if let Some(ref mut default) = arg.default {
+        *default =
+            crate::expand::expand(default, lookup).map_err(|e| ConfigError::ExpandError {
                 field: format!("args[{}].default", arg.name),
                 source: e,
             })?;
-        }
-
-        // Expand ArgConfig::help
-        if let Some(ref mut help) = arg.help {
-            *help = crate::expand::expand(help, lookup).map_err(|e| ConfigError::ExpandError {
-                field: format!("args[{}].help", arg.name),
-                source: e,
-            })?;
-        }
-
-        // Expand ArgConfig::choices elements
-        if let Some(ref mut choices) = arg.choices {
-            for choice in choices.iter_mut() {
-                *choice = crate::expand::expand(choice, lookup).map_err(|e| {
-                    ConfigError::ExpandError {
-                        field: format!("args[{}].choices", arg.name),
-                        source: e,
-                    }
-                })?;
-            }
-        }
-
-        // Expand EnvSetting::Custom(String)
-        if let Some(EnvSetting::Custom(ref mut var)) = arg.env {
-            *var = crate::expand::expand(var, lookup).map_err(|e| ConfigError::ExpandError {
-                field: format!("args[{}].env", arg.name),
-                source: e,
-            })?;
-        }
-
-        Ok(())
     }
+
+    // Expand ArgConfig::help
+    if let Some(ref mut help) = arg.help {
+        *help = crate::expand::expand(help, lookup).map_err(|e| ConfigError::ExpandError {
+            field: format!("args[{}].help", arg.name),
+            source: e,
+        })?;
+    }
+
+    // Expand ArgConfig::choices elements
+    if let Some(ref mut choices) = arg.choices {
+        for choice in choices.iter_mut() {
+            *choice =
+                crate::expand::expand(choice, lookup).map_err(|e| ConfigError::ExpandError {
+                    field: format!("args[{}].choices", arg.name),
+                    source: e,
+                })?;
+        }
+    }
+
+    // Expand EnvSetting::Custom(String)
+    if let Some(EnvSetting::Custom(ref mut var)) = arg.env {
+        *var = crate::expand::expand(var, lookup).map_err(|e| ConfigError::ExpandError {
+            field: format!("args[{}].env", arg.name),
+            source: e,
+        })?;
+    }
+
+    Ok(())
+}
 
 /// Validate num_args format (e.g., "1", "1..", "2..5", "1..=3").
 fn validate_num_args_format(num_args: &str) -> Result<(), ConfigError> {
@@ -1859,16 +1867,20 @@ mod tests {
             ]
         }"#;
         let mut config = Config::from_json(json).unwrap();
-        let result = config.expand_vars(|var| {
-            match var {
-                "USER" => Some("alice".to_string()),
-                "HOME" => Some("/home/alice".to_string()),
-                _ => None,
-            }
+        let result = config.expand_vars(|var| match var {
+            "USER" => Some("alice".to_string()),
+            "HOME" => Some("/home/alice".to_string()),
+            _ => None,
         });
         assert!(result.is_ok());
-        assert_eq!(config.args[0].default, Some("/tmp/alice/output".to_string()));
-        assert_eq!(config.args[0].help, Some("Output file (in /home/alice)".to_string()));
+        assert_eq!(
+            config.args[0].default,
+            Some("/tmp/alice/output".to_string())
+        );
+        assert_eq!(
+            config.args[0].help,
+            Some("Output file (in /home/alice)".to_string())
+        );
         assert_eq!(
             config.args[0].choices,
             Some(vec![
@@ -1922,12 +1934,10 @@ mod tests {
             ]
         }"#;
         let mut config = Config::from_json(json).unwrap();
-        let result = config.expand_vars(|var| {
-            match var {
-                "TYPE" => Some("Rust".to_string()),
-                "TEMPLATE" => Some("starter".to_string()),
-                _ => None,
-            }
+        let result = config.expand_vars(|var| match var {
+            "TYPE" => Some("Rust".to_string()),
+            "TEMPLATE" => Some("starter".to_string()),
+            _ => None,
         });
         assert!(result.is_ok());
         assert_eq!(
@@ -1953,12 +1963,10 @@ mod tests {
             }
         }"#;
         let mut config = Config::from_json(json).unwrap();
-        let result = config.expand_vars(|var| {
-            match var {
-                "VERSION" => Some("22.04".to_string()),
-                "USER" => Some("bob".to_string()),
-                _ => None,
-            }
+        let result = config.expand_vars(|var| match var {
+            "VERSION" => Some("22.04".to_string()),
+            "USER" => Some("bob".to_string()),
+            _ => None,
         });
         assert!(result.is_ok());
         let container = config.container.unwrap();
@@ -1980,14 +1988,12 @@ mod tests {
         let mut config = Config::from_json(json).unwrap();
         // Note: The $ in identifier fields won't be expanded by our implementation
         // since we only expand specific string fields, not identifiers
-        let result = config.expand_vars(|var| {
-            match var {
-                "SCRIPT" => Some("myscript".to_string()),
-                "PREFIX_" => Some("MYAPP_".to_string()),
-                "ARG_NAME" => Some("output".to_string()),
-                "ARG_LONG" => Some("output".to_string()),
-                _ => None,
-            }
+        let result = config.expand_vars(|var| match var {
+            "SCRIPT" => Some("myscript".to_string()),
+            "PREFIX_" => Some("MYAPP_".to_string()),
+            "ARG_NAME" => Some("output".to_string()),
+            "ARG_LONG" => Some("output".to_string()),
+            _ => None,
         });
         assert!(result.is_ok());
         assert_eq!(config.name, Some("$SCRIPT".to_string()));
