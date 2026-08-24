@@ -12,12 +12,12 @@ static LOGGER_INIT: Once = Once::new();
 
 /// ANSI color codes for log levels
 mod colors {
-    pub const TRACE: &str = "\x1b[36m";   // Cyan
-    pub const DEBUG: &str = "\x1b[35m";   // Magenta
-    pub const INFO: &str = "\x1b[32m";    // Green
-    pub const WARN: &str = "\x1b[33m";    // Yellow
-    pub const ERROR: &str = "\x1b[31m";   // Red
-    pub const RESET: &str = "\x1b[0m";    // Reset
+    pub const TRACE: &str = "\x1b[36m"; // Cyan
+    pub const DEBUG: &str = "\x1b[35m"; // Magenta
+    pub const INFO: &str = "\x1b[32m"; // Green
+    pub const WARN: &str = "\x1b[33m"; // Yellow
+    pub const ERROR: &str = "\x1b[31m"; // Red
+    pub const RESET: &str = "\x1b[0m"; // Reset
 }
 
 /// Check if stderr is a TTY
@@ -27,11 +27,15 @@ fn is_stderr_tty() -> bool {
 
 /// Format a level string with optional color
 fn format_level(level: &str, use_color: bool) -> String {
-    let level_upper = level.to_uppercase();
-    let level_display = if level == "warn" { "WARNING" } else { &level_upper };
+    let level_lower = level.to_lowercase();
+    let level_display = if level_lower == "warn" {
+        "WARNING"
+    } else {
+        &level.to_uppercase()
+    };
 
     if use_color {
-        let color = match level {
+        let color = match level_lower.as_str() {
             "trace" => colors::TRACE,
             "debug" => colors::DEBUG,
             "info" => colors::INFO,
