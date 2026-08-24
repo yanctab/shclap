@@ -3,6 +3,8 @@
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::expand::ExpandError;
+
 /// The minimum supported schema version.
 pub const MIN_SCHEMA_VERSION: u32 = 1;
 /// The maximum supported schema version.
@@ -66,6 +68,9 @@ pub enum ConfigError {
 
     #[error("'pull_policy' must be nested under 'container', not at the top level")]
     TopLevelPullPolicy,
+
+    #[error("failed to expand variable in field '{field}': {source}")]
+    ExpandError { field: String, source: ExpandError },
 }
 
 /// The type of argument.
@@ -479,7 +484,119 @@ impl Config {
     pub fn effective_prefix(&self) -> &str {
         self.prefix.as_deref().unwrap_or("SHCLAP_")
     }
+
+    /// Expand variables in all expandable string fields of the config tree.
+    ///
+    /// Walks every expandable string field in the config and replaces each in-place
+    /// using the provided lookup function. The walker covers:
+    /// - `Config::description`
+    /// - `Config::version`
+    /// - Each `ArgConfig`'s `default`, `help`, and `choices` elements
+    /// - `EnvSetting::Custom(String)` (but leaves other variants unchanged)
+    /// - Each `SubcommandConfig`'s `help` and its nested `ArgConfig` fields (recursively)
+    /// - `ContainerConfig::image` and each element of `ContainerConfig::args`
+    ///
+    /// Identifier fields (`name`, `prefix`, `long`, `schema_version`, type/enum discriminants)
+    /// are not expanded.
+    pub fn expand_vars(&mut self, lookup: impl Fn(&str) -> Option<String>) -> Result<(), ConfigError> {
+        // Expand Config::description
+        if let Some(ref mut desc) = self.description {
+            *desc = crate::expand::expand(desc, &lookup).map_err(|e| ConfigError::ExpandError {
+                field: "description".to_string(),
+                source: e,
+            })?;
+        }
+
+        // Expand Config::version
+        if let Some(ref mut version) = self.version {
+            *version = crate::expand::expand(version, &lookup).map_err(|e| ConfigError::ExpandError {
+                field: "version".to_string(),
+                source: e,
+            })?;
+        }
+
+        // Expand each ArgConfig's default, help, and choices
+        for i in 0..self.args.len() {
+            expand_arg(&mut self.args[i], &lookup)?;
+        }
+
+        // Expand each SubcommandConfig's help and nested ArgConfigs
+        for i in 0..self.subcommands.len() {
+            let subcmd_name = self.subcommands[i].name.clone();
+            if let Some(ref mut help) = self.subcommands[i].help {
+                *help = crate::expand::expand(help, &lookup).map_err(|e| ConfigError::ExpandError {
+                    field: format!("subcommands[{}].help", subcmd_name),
+                    source: e,
+                })?;
+            }
+
+            for j in 0..self.subcommands[i].args.len() {
+                expand_arg(&mut self.subcommands[i].args[j], &lookup)?;
+            }
+        }
+
+        // Expand ContainerConfig::image and args
+        if let Some(ref mut container) = self.container {
+            container.image = crate::expand::expand(&container.image, &lookup).map_err(|e| {
+                ConfigError::ExpandError {
+                    field: "container.image".to_string(),
+                    source: e,
+                }
+            })?;
+
+            for arg in &mut container.args {
+                *arg = crate::expand::expand(arg, &lookup).map_err(|e| ConfigError::ExpandError {
+                    field: "container.args".to_string(),
+                    source: e,
+                })?;
+            }
+        }
+
+        Ok(())
+    }
+
 }
+
+/// Helper function to expand an ArgConfig's expandable fields.
+fn expand_arg(arg: &mut ArgConfig, lookup: &impl Fn(&str) -> Option<String>) -> Result<(), ConfigError> {
+        // Expand ArgConfig::default
+        if let Some(ref mut default) = arg.default {
+            *default = crate::expand::expand(default, lookup).map_err(|e| ConfigError::ExpandError {
+                field: format!("args[{}].default", arg.name),
+                source: e,
+            })?;
+        }
+
+        // Expand ArgConfig::help
+        if let Some(ref mut help) = arg.help {
+            *help = crate::expand::expand(help, lookup).map_err(|e| ConfigError::ExpandError {
+                field: format!("args[{}].help", arg.name),
+                source: e,
+            })?;
+        }
+
+        // Expand ArgConfig::choices elements
+        if let Some(ref mut choices) = arg.choices {
+            for choice in choices.iter_mut() {
+                *choice = crate::expand::expand(choice, lookup).map_err(|e| {
+                    ConfigError::ExpandError {
+                        field: format!("args[{}].choices", arg.name),
+                        source: e,
+                    }
+                })?;
+            }
+        }
+
+        // Expand EnvSetting::Custom(String)
+        if let Some(EnvSetting::Custom(ref mut var)) = arg.env {
+            *var = crate::expand::expand(var, lookup).map_err(|e| ConfigError::ExpandError {
+                field: format!("args[{}].env", arg.name),
+                source: e,
+            })?;
+        }
+
+        Ok(())
+    }
 
 /// Validate num_args format (e.g., "1", "1..", "2..5", "1..=3").
 fn validate_num_args_format(num_args: &str) -> Result<(), ConfigError> {
@@ -1701,5 +1818,222 @@ mod tests {
         }"#;
         let result = Config::from_json(json);
         assert!(result.is_err());
+    }
+
+    // --- expand_vars tests (issue #87) ---
+
+    #[test]
+    fn test_expand_vars_config_description() {
+        // Criterion 1: Config::expand_vars(lookup) expands Config::description
+        let json = r#"{
+            "name": "test",
+            "description": "Hello $NAME"
+        }"#;
+        let mut config = Config::from_json(json).unwrap();
+        let result = config.expand_vars(|var| {
+            if var == "NAME" {
+                Some("World".to_string())
+            } else {
+                None
+            }
+        });
+        assert!(result.is_ok());
+        assert_eq!(config.description, Some("Hello World".to_string()));
+    }
+
+    #[test]
+    fn test_expand_vars_arg_default_help_choices() {
+        // Criterion 2: Config::expand_vars(lookup) expands ArgConfig::default, help, and choices
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {
+                    "name": "output",
+                    "long": "output",
+                    "type": "option",
+                    "default": "/tmp/$USER/output",
+                    "help": "Output file (in $HOME)",
+                    "choices": ["$HOME/a.txt", "$HOME/b.txt"]
+                }
+            ]
+        }"#;
+        let mut config = Config::from_json(json).unwrap();
+        let result = config.expand_vars(|var| {
+            match var {
+                "USER" => Some("alice".to_string()),
+                "HOME" => Some("/home/alice".to_string()),
+                _ => None,
+            }
+        });
+        assert!(result.is_ok());
+        assert_eq!(config.args[0].default, Some("/tmp/alice/output".to_string()));
+        assert_eq!(config.args[0].help, Some("Output file (in /home/alice)".to_string()));
+        assert_eq!(
+            config.args[0].choices,
+            Some(vec![
+                "/home/alice/a.txt".to_string(),
+                "/home/alice/b.txt".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn test_expand_vars_env_setting_custom() {
+        // Criterion 3: Config::expand_vars(lookup) expands EnvSetting::Custom but leaves Disabled unchanged
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "custom_var", "long": "custom", "type": "option", "env": "PREFIX_$SUFFIX"},
+                {"name": "disabled_var", "long": "disabled", "type": "option", "env": false}
+            ]
+        }"#;
+        let mut config = Config::from_json(json).unwrap();
+        let result = config.expand_vars(|var| {
+            if var == "SUFFIX" {
+                Some("VAR".to_string())
+            } else {
+                None
+            }
+        });
+        assert!(result.is_ok());
+        assert_eq!(
+            config.args[0].env,
+            Some(EnvSetting::Custom("PREFIX_VAR".to_string()))
+        );
+        assert_eq!(config.args[1].env, Some(EnvSetting::Disabled));
+    }
+
+    #[test]
+    fn test_expand_vars_subcommand_help_and_args() {
+        // Criterion 4: Config::expand_vars expands SubcommandConfig::help and recursively expands nested ArgConfigs
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "subcommands": [
+                {
+                    "name": "init",
+                    "help": "Initialize $TYPE project",
+                    "args": [
+                        {"name": "template", "type": "positional", "help": "Use $TEMPLATE template"}
+                    ]
+                }
+            ]
+        }"#;
+        let mut config = Config::from_json(json).unwrap();
+        let result = config.expand_vars(|var| {
+            match var {
+                "TYPE" => Some("Rust".to_string()),
+                "TEMPLATE" => Some("starter".to_string()),
+                _ => None,
+            }
+        });
+        assert!(result.is_ok());
+        assert_eq!(
+            config.subcommands[0].help,
+            Some("Initialize Rust project".to_string())
+        );
+        assert_eq!(
+            config.subcommands[0].args[0].help,
+            Some("Use starter template".to_string())
+        );
+    }
+
+    #[test]
+    fn test_expand_vars_container_image_and_args() {
+        // Criterion 5: Config::expand_vars expands ContainerConfig::image and each arg
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {
+                "runtime": "docker",
+                "image": "ubuntu:$VERSION",
+                "args": ["-e", "USER=$USER"]
+            }
+        }"#;
+        let mut config = Config::from_json(json).unwrap();
+        let result = config.expand_vars(|var| {
+            match var {
+                "VERSION" => Some("22.04".to_string()),
+                "USER" => Some("bob".to_string()),
+                _ => None,
+            }
+        });
+        assert!(result.is_ok());
+        let container = config.container.unwrap();
+        assert_eq!(container.image, "ubuntu:22.04");
+        assert_eq!(container.args, vec!["-e", "USER=bob"]);
+    }
+
+    #[test]
+    fn test_expand_vars_leaves_identifier_fields_unchanged() {
+        // Criterion 6: Config::expand_vars leaves name, prefix, long, and schema_version unchanged
+        let json = r#"{
+            "schema_version": 2,
+            "name": "$SCRIPT",
+            "prefix": "$PREFIX_",
+            "args": [
+                {"name": "$ARG_NAME", "long": "$ARG_LONG", "type": "option"}
+            ]
+        }"#;
+        let mut config = Config::from_json(json).unwrap();
+        // Note: The $ in identifier fields won't be expanded by our implementation
+        // since we only expand specific string fields, not identifiers
+        let result = config.expand_vars(|var| {
+            match var {
+                "SCRIPT" => Some("myscript".to_string()),
+                "PREFIX_" => Some("MYAPP_".to_string()),
+                "ARG_NAME" => Some("output".to_string()),
+                "ARG_LONG" => Some("output".to_string()),
+                _ => None,
+            }
+        });
+        assert!(result.is_ok());
+        assert_eq!(config.name, Some("$SCRIPT".to_string()));
+        assert_eq!(config.prefix, Some("$PREFIX_".to_string()));
+        assert_eq!(config.args[0].name, "$ARG_NAME");
+        assert_eq!(config.args[0].long, Some("$ARG_LONG".to_string()));
+        assert_eq!(config.schema_version, 2);
+    }
+
+    #[test]
+    fn test_expand_vars_missing_variable_error() {
+        // Criterion 7: A missing variable causes expand_vars to return Err with field context
+        let json = r#"{
+            "name": "test",
+            "description": "Uses $UNDEFINED"
+        }"#;
+        let mut config = Config::from_json(json).unwrap();
+        let result = config.expand_vars(|_var| None);
+        assert!(result.is_err());
+        match result {
+            Err(ConfigError::ExpandError { field, source: _ }) => {
+                assert_eq!(field, "description");
+            }
+            _ => panic!("Expected ExpandError with field context"),
+        }
+    }
+
+    #[test]
+    fn test_expand_vars_missing_variable_in_arg_field() {
+        // Criterion 7: Missing variable in arg field returns error with field context
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "args": [
+                {"name": "output", "long": "output", "type": "option", "default": "$MISSING"}
+            ]
+        }"#;
+        let mut config = Config::from_json(json).unwrap();
+        let result = config.expand_vars(|_var| None);
+        assert!(result.is_err());
+        match result {
+            Err(ConfigError::ExpandError { field, source: _ }) => {
+                assert!(field.contains("output"));
+                assert!(field.contains("default"));
+            }
+            _ => panic!("Expected ExpandError with field context"),
+        }
     }
 }
