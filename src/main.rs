@@ -32,6 +32,10 @@ enum Commands {
         #[arg(long)]
         prefix: Option<String>,
 
+        /// Path to the calling script (pass "$0"); used for container re-exec volume mounts
+        #[arg(long)]
+        script: std::path::PathBuf,
+
         /// Filesystem root for container marker detection (test seam)
         #[arg(long, hide = true)]
         container_marker_root: Option<std::path::PathBuf>,
@@ -97,6 +101,7 @@ fn main() -> Result<()> {
             config,
             name,
             prefix,
+            script,
             container_marker_root,
             args,
         } => {
@@ -157,8 +162,15 @@ fn main() -> Result<()> {
                         }
                         None => {
                             // Not inside any container — reexec into the configured one.
-                            let path = generate_container_reexec_output(container, &cfg)
-                                .context("failed to generate container reexec output file")?;
+                            let script_canonical = script.canonicalize().with_context(|| {
+                                format!("failed to resolve script path: {}", script.display())
+                            })?;
+                            let path = generate_container_reexec_output(
+                                container,
+                                &cfg,
+                                &script_canonical,
+                            )
+                            .context("failed to generate container reexec output file")?;
                             println!("{}", path.display());
                             return Ok(());
                         }
@@ -289,20 +301,30 @@ mod tests {
 
     #[test]
     fn test_parse_subcommand_parses_config() {
-        let cli = Cli::try_parse_from(["shclap", "parse", "--config", r#"{"name":"test"}"#, "--"])
-            .unwrap();
+        let cli = Cli::try_parse_from([
+            "shclap",
+            "parse",
+            "--config",
+            r#"{"name":"test"}"#,
+            "--script",
+            "/test/script.sh",
+            "--",
+        ])
+        .unwrap();
 
         match cli.command {
             Commands::Parse {
                 config,
                 name,
                 prefix,
+                script,
                 container_marker_root,
                 args,
             } => {
                 assert_eq!(config, r#"{"name":"test"}"#);
                 assert!(name.is_none());
                 assert!(prefix.is_none());
+                assert_eq!(script, std::path::PathBuf::from("/test/script.sh"));
                 assert!(container_marker_root.is_none());
                 assert!(args.is_empty());
             }
@@ -317,6 +339,8 @@ mod tests {
             "parse",
             "--config",
             r#"{"name":"test"}"#,
+            "--script",
+            "/test/script.sh",
             "--prefix",
             "MYAPP_",
             "--",
@@ -335,7 +359,7 @@ mod tests {
     #[test]
     fn test_parse_subcommand_parses_name() {
         let cli = Cli::try_parse_from([
-            "shclap", "parse", "--config", r#"{}"#, "--name", "myapp", "--",
+            "shclap", "parse", "--config", r#"{}"#, "--script", "/test/script.sh", "--name", "myapp", "--",
         ])
         .unwrap();
 
@@ -354,6 +378,8 @@ mod tests {
             "parse",
             "--config",
             r#"{"name":"test"}"#,
+            "--script",
+            "/test/script.sh",
             "--",
             "-v",
             "--output",
@@ -475,6 +501,8 @@ mod tests {
             "parse",
             "--config",
             r#"{"name":"test","prefix":"CONFIG_"}"#,
+            "--script",
+            "/test/script.sh",
             "--prefix",
             "CLI_",
             "--",
@@ -498,6 +526,8 @@ mod tests {
             "parse",
             "--config",
             r#"{"name":"test","prefix":"CONFIG_"}"#,
+            "--script",
+            "/test/script.sh",
             "--",
         ])
         .unwrap();
@@ -514,8 +544,16 @@ mod tests {
 
     #[test]
     fn test_prefix_priority_default_when_neither_set() {
-        let cli = Cli::try_parse_from(["shclap", "parse", "--config", r#"{"name":"test"}"#, "--"])
-            .unwrap();
+        let cli = Cli::try_parse_from([
+            "shclap",
+            "parse",
+            "--config",
+            r#"{"name":"test"}"#,
+            "--script",
+            "/test/script.sh",
+            "--",
+        ])
+        .unwrap();
 
         match cli.command {
             Commands::Parse { config, prefix, .. } => {
@@ -534,6 +572,8 @@ mod tests {
             "parse",
             "--config",
             r#"{"name":"config_name"}"#,
+            "--script",
+            "/test/script.sh",
             "--name",
             "cli_name",
             "--",
@@ -557,6 +597,8 @@ mod tests {
             "parse",
             "--config",
             r#"{"name":"config_name"}"#,
+            "--script",
+            "/test/script.sh",
             "--",
         ])
         .unwrap();
@@ -578,6 +620,8 @@ mod tests {
             "parse",
             "--config",
             r#"{"name":"test"}"#,
+            "--script",
+            "/test/script.sh",
             "--container-marker-root",
             "/tmp/test",
             "--",

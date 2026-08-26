@@ -2,11 +2,11 @@
 
 use crate::config::{ArgConfig, ArgType, Config, ContainerConfig};
 use crate::parser::ParsedValue;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::env;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
 /// Heredoc delimiter for help output.
@@ -300,7 +300,11 @@ fn shell_quote(value: &str) -> String {
 /// 2. Checks the container runtime is available
 /// 3. Re-execs the script inside the container with the required volume mounts
 /// 4. Forwards prefix-matching and explicitly-named environment variables
-pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Config) -> String {
+pub fn generate_container_reexec_string(
+    container: &ContainerConfig,
+    config: &Config,
+    script: &Path,
+) -> Result<String> {
     generate_container_reexec_string_with(
         || {
             std::env::current_dir()
@@ -308,37 +312,17 @@ pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Co
                 .map_err(|e| anyhow::anyhow!(e))
         },
         || std::env::current_exe().map_err(|e| anyhow::anyhow!(e)),
-        || {
-            std::env::args()
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("arg 0 not available"))
-                .and_then(|path| std::fs::canonicalize(path).map_err(|e| anyhow::anyhow!(e)))
-        },
+        || Ok(script.to_path_buf()),
         container,
         config,
     )
-    .unwrap_or_else(|_e| {
-        // Fallback to old behavior if resolution fails
-        let rt = &container.runtime;
-        let mut s = String::new();
-        s.push_str("_shclap_script=$(readlink -f \"$0\")\n");
-        s.push_str("_shclap_bin=$(readlink -f \"$(command -v shclap)\")\n");
-        s.push_str(&format!(
-            "command -v {rt} >/dev/null 2>&1 || {{ echo \"shclap: container runtime '{rt}' not found\" >&2; exit 127; }}\n"
-        ));
-        s.push_str(&format!(
-            "echo \"shclap: bootstrapping into {rt}:{image}\" >&2\n",
-            image = container.image
-        ));
-        s.push_str("_shclap_cwd=$(pwd)\n");
-        s
-    })
 }
 
 /// Generate the shell fragment that re-execs the calling script inside a container,
 /// with injected closures for cwd, exe, and script path resolution.
 ///
-/// This seam allows unit tests to inject synthetic paths and test error handling.
+/// All three paths are resolved at parse time and emitted as literals.
+/// Returns an error if any path cannot be resolved.
 fn generate_container_reexec_string_with<CwdFn, ExeFn, ScriptFn>(
     cwd_fn: CwdFn,
     exe_fn: ExeFn,
@@ -353,15 +337,13 @@ where
 {
     use std::collections::HashSet;
 
-    // Resolve paths at parse time
-    let cwd_path = cwd_fn()?;
-    let exe_path = exe_fn()?;
-    let script_path = script_fn()?;
+    let script_path = script_fn().context("failed to resolve script path")?;
+    let exe_path = exe_fn().context("failed to resolve shclap binary path")?;
+    let cwd_path = cwd_fn().context("failed to resolve current working directory")?;
 
     let rt = &container.runtime;
     let mut s = String::new();
 
-    // Emit literal paths using shell_quote
     s.push_str(&format!(
         "_shclap_script={}\n",
         shell_quote(&script_path.to_string_lossy())
@@ -456,9 +438,9 @@ where
 pub fn generate_container_reexec_output(
     container: &ContainerConfig,
     config: &Config,
+    script: &Path,
 ) -> Result<PathBuf> {
-    let content = generate_container_reexec_string(container, config);
-    // generate_container_reexec_string has a fallback, so this is always Ok
+    let content = generate_container_reexec_string(container, config, script)?;
     write_temp_file(&content)
 }
 
@@ -846,13 +828,11 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
-        // Must start with literal script / binary path resolution (new form)
-        // Paths are resolved at parse time and emitted as literals, not dynamic substitutions
-        assert!(output.contains("_shclap_script="));
+        // All paths are emitted as literals resolved at parse time
+        assert!(output.contains("_shclap_script=/test/script.sh"));
         assert!(output.contains("_shclap_bin="));
-        assert!(!output.contains("_shclap_script=$(readlink -f \"$0\")"));
         assert!(!output.contains("_shclap_bin=$(readlink -f \"$(command -v shclap)\")"));
         // Runtime availability check with correct error message
         assert!(output.contains("command -v docker >/dev/null 2>&1 || { echo \"shclap: container runtime 'docker' not found\" >&2; exit 127; }"));
@@ -878,7 +858,7 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Extra args must appear verbatim before the image
         assert!(output.contains("-v \\"));
@@ -901,7 +881,7 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Unquoted, the shell would split this into two arguments.
         assert!(output.contains("  'my label' \\\n"));
@@ -924,7 +904,7 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // The generated file is sourced, so none of these may reach the shell bare.
         assert!(output.contains("  '--label=a;id' \\\n"));
@@ -944,7 +924,7 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         assert!(output.contains(r"  'it'\''s' \"));
     }
@@ -966,7 +946,7 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Values that are inert to the shell stay readable.
         assert!(output.contains("  --network \\\n  host \\\n"));
@@ -986,7 +966,7 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         assert!(output.contains("  'ubuntu:24.04 ; id' \\\n"));
     }
@@ -1026,7 +1006,7 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let path = generate_container_reexec_output(&container, &config).unwrap();
+        let path = generate_container_reexec_output(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
         assert!(path.exists());
         let contents = std::fs::read_to_string(&path).unwrap();
         assert!(contents.contains("exec docker run --rm"));
@@ -1053,7 +1033,7 @@ mod tests {
         env::set_var("MYAPP_LOG_LEVEL", "info");
         env::set_var("UNRELATED_VAR", "should_not_appear");
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Clean up
         env::remove_var("MYAPP_DEBUG");
@@ -1097,7 +1077,7 @@ mod tests {
 
         let config = Config::from_json(config_json).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Should forward custom env names
         assert!(output.contains("-e CUSTOM_VERBOSE \\"));
@@ -1133,7 +1113,7 @@ mod tests {
         // Set an env var that matches both the prefix and a custom env name
         env::set_var("SHCLAP_VERBOSE", "true");
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Clean up
         env::remove_var("SHCLAP_VERBOSE");
@@ -1154,7 +1134,7 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config);
+        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Should contain --pull=always immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=always \\"));
@@ -1170,7 +1150,7 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config);
+        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Should contain --pull=never immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=never \\"));
@@ -1186,7 +1166,7 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config);
+        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Should contain --pull=missing immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));
@@ -1202,7 +1182,7 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config);
+        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Should contain --pull=always immediately after --rm
         assert!(output.contains("exec podman run --rm \\\n  --pull=always \\"));
@@ -1218,7 +1198,7 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config);
+        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Should contain --pull=never immediately after --rm
         assert!(output.contains("exec podman run --rm \\\n  --pull=never \\"));
@@ -1234,7 +1214,7 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config);
+        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Should contain --pull=missing immediately after --rm
         assert!(output.contains("exec podman run --rm \\\n  --pull=missing \\"));
@@ -1251,7 +1231,7 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config);
+        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Should contain --pull=missing (the verbatim string for PullPolicy::Missing) immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));
@@ -1269,7 +1249,7 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Check that _shclap_cwd (literal value) appears before exec line (new form)
         assert!(output.contains("_shclap_cwd="));
@@ -1327,7 +1307,7 @@ mod tests {
         env::set_var("SHCLAP_LOG", "debug");
         env::set_var("SHCLAP_LOG_STYLE", "always");
 
-        let output = generate_container_reexec_string(&container, &config);
+        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
 
         // Clean up
         env::remove_var("SHCLAP_LOG");
@@ -1389,12 +1369,7 @@ mod tests {
             generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config)
                 .expect("should succeed");
 
-        // Should contain literal paths, not shell substitutions
-        assert!(!output.contains("_shclap_cwd=$(pwd)"));
-        assert!(!output.contains("_shclap_bin=$(readlink -f"));
-        assert!(!output.contains("_shclap_script=$(readlink -f"));
-
-        // Should contain the literal paths (safe paths are unquoted)
+        // All paths emitted as literals
         assert!(output.contains("_shclap_script=/home/user/project/script.sh"));
         assert!(output.contains("_shclap_bin=/usr/local/bin/shclap"));
         assert!(output.contains("_shclap_cwd=/home/user/project"));
@@ -1423,7 +1398,7 @@ mod tests {
             generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config)
                 .expect("should succeed");
 
-        // Paths with spaces should be quoted
+        // All literal; paths with spaces must be quoted
         assert!(output.contains("_shclap_script='/home/user/my project/script.sh'"));
         assert!(output.contains("_shclap_bin='/usr/bin/shclap 1.0'"));
         assert!(output.contains("_shclap_cwd='/home/user/my project'"));
@@ -1451,16 +1426,15 @@ mod tests {
             generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config)
                 .expect("should succeed");
 
-        // Paths with special characters should be quoted to prevent shell expansion
+        // All literal; paths with special characters must be single-quoted
         assert!(output.contains("_shclap_script='"));
         assert!(output.contains("_shclap_bin='"));
         assert!(output.contains("_shclap_cwd='"));
-        // Verify that variables are assigned before the exec line
+        // All assignments must come before exec
         let cwd_assign_pos = output.find("_shclap_cwd=").unwrap();
         let script_assign_pos = output.find("_shclap_script=").unwrap();
         let bin_assign_pos = output.find("_shclap_bin=").unwrap();
         let exec_pos = output.find("exec docker run").unwrap();
-        // All assignments should come before the exec
         assert!(cwd_assign_pos < exec_pos);
         assert!(script_assign_pos < exec_pos);
         assert!(bin_assign_pos < exec_pos);
@@ -1487,7 +1461,6 @@ mod tests {
         let result =
             generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config);
 
-        // Should return an error when cwd_fn fails
         assert!(result.is_err());
     }
 
@@ -1512,7 +1485,6 @@ mod tests {
         let result =
             generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config);
 
-        // Should return an error when exe_fn fails
         assert!(result.is_err());
     }
 
@@ -1529,7 +1501,6 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        // Inject a failing script_fn
         let cwd_fn = || -> Result<PathBuf> { Ok(PathBuf::from("/home/user")) };
         let exe_fn = || -> Result<PathBuf> { Ok(PathBuf::from("/usr/local/bin/shclap")) };
         let script_fn =
@@ -1538,7 +1509,6 @@ mod tests {
         let result =
             generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config);
 
-        // Should return an error when script_fn fails
         assert!(result.is_err());
     }
 }
