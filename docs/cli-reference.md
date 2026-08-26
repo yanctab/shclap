@@ -30,7 +30,7 @@ source $(shclap parse --config='{"args":[]}' --name=myapp -- "$@")
 
 **Note on Container Bootstrap:**
 
-When your configuration includes a `container` block (schema v2 only), shclap automatically captures your current working directory, bind-mounts it read-write into the container, and sets it as the container's `--workdir`. This ensures relative paths work correctly inside the container. You can override this behavior via `container.args`. See [Container Bootstrap](container.md) for details.
+When your configuration includes a `container` block (schema v2 only), shclap automatically resolves your current working directory at parse time, bind-mounts it read-write into the container, and sets it as the container's `--workdir`. The resolved working directory is the physical path with all symlinks resolved. This ensures relative paths work correctly inside the container. You can override this behavior via `container.args`. See [Container Bootstrap](container.md) for details.
 
 ### `shclap help`
 

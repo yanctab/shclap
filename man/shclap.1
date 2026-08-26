@@ -271,16 +271,27 @@ Never pull; fail if the image is not cached locally.
 .B args
 Array of extra flags to pass to the runtime. Example: ["--network", "host"]
 .SS "Working Directory Bind-Mount"
-When shclap performs container bootstrap, it automatically captures the caller's current working directory using
-.BR pwd ,
-bind-mounts this directory read-write into the container at the same path, and sets the container's
+When shclap performs container bootstrap, it automatically:
+.RS
+.TP
+1.
+Resolves the caller's working directory at parse time and emits it as a shell-quoted literal (all symlinks resolved to their physical paths)
+.TP
+2.
+Bind-mounts this directory read-write into the container at the same path
+.TP
+3.
+Sets the container's
 .B --workdir
-to this directory. This ensures that relative paths in the script work correctly inside the container.
+to this directory
+.RE
+.PP
+This ensures that relative paths in the script work correctly inside the container. The emitted working directory is resolved at parse time, not at runtime by the shell. All symlinks are resolved to their physical paths. This is a visible behavioral change from earlier releases.
 .PP
 The emitted code includes:
 .RS
 .nf
-_shclap_cwd=$(pwd)
+_shclap_cwd=/home/user/project
 \-v "$_shclap_cwd:$_shclap_cwd" \\
 \-\-workdir "$_shclap_cwd" \\
 .fi

@@ -50,17 +50,18 @@ where `<signal>` is one of `/.dockerenv`, `/run/.containerenv`, or `$container`.
 
 When none of the detection signals are present, shclap writes a shell fragment to a temp file and prints the path. When the script sources that path, the following happens:
 
-1. The script and shclap binary paths are resolved with `readlink -f`.
-2. The configured runtime is checked with `command -v`. If it is not on `PATH`, the sourced file prints an error and exits with code **127**.
-3. A diagnostic is printed to stderr: `shclap: bootstrapping into <runtime>:<image>`.
-4. `exec <runtime> run` replaces the host shell process with the container.
+1. The script, shclap binary, and working directory paths are resolved at parse time (symlinks are resolved to their physical paths).
+2. The resolved paths are emitted as shell-quoted literals (not dynamic shell expressions).
+3. The configured runtime is checked with `command -v`. If it is not on `PATH`, the sourced file prints an error and exits with code **127**.
+4. A diagnostic is printed to stderr: `shclap: bootstrapping into <runtime>:<image>`.
+5. `exec <runtime> run` replaces the host shell process with the container.
 
 The exact shape of the emitted invocation:
 
 ```sh
-_shclap_script=$(readlink -f "$0")
-_shclap_bin=$(readlink -f "$(command -v shclap)")
-_shclap_cwd=$(pwd)
+_shclap_script=/home/user/myscript.sh
+_shclap_bin=/usr/local/bin/shclap
+_shclap_cwd=/home/user/project
 command -v docker >/dev/null 2>&1 || { echo "shclap: container runtime 'docker' not found" >&2; exit 127; }
 echo "shclap: bootstrapping into docker:ubuntu:22.04" >&2
 set -x
@@ -81,7 +82,7 @@ Key points:
 
 - `--pull=<policy>` is emitted immediately after `--rm`. The value matches `container.pull_policy` verbatim (`always`, `missing`, or `never`).
 - The script and shclap binary are mounted read-only into the container.
-- The caller's working directory is captured, bind-mounted read-write into the container, and set as the `--workdir` inside the container. This ensures relative paths work correctly inside the container. The caller can override the working directory via `container.args` (e.g., `"args": ["--workdir", "/tmp"]`).
+- The caller's working directory is captured at parse time, bind-mounted read-write into the container, and set as the `--workdir` inside the container. This ensures relative paths work correctly inside the container. The emitted working directory is the physical path (all symlinks resolved). The caller can override the working directory via `container.args` (e.g., `"args": ["--workdir", "/tmp"]`).
 - `SHCLAP_IN_CONTAINER=1` is set so the container pass detects the bypass signal.
 - All environment variables whose names start with the configured prefix are forwarded.
 - All variables listed via `env` fields in the argument config are forwarded.

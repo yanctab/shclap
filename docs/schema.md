@@ -345,8 +345,9 @@ shclap: container detected via <signal>, skipping reexec
 When no detection signal is found, shclap emits a shell fragment with this shape:
 
 ```sh
-_shclap_script=$(readlink -f "$0")
-_shclap_bin=$(readlink -f "$(command -v shclap)")
+_shclap_script=/home/user/myscript.sh
+_shclap_bin=/usr/local/bin/shclap
+_shclap_cwd=/home/user/project
 command -v docker >/dev/null 2>&1 || { echo "shclap: container runtime 'docker' not found" >&2; exit 127; }
 echo "shclap: bootstrapping into docker:ubuntu:22.04" >&2
 set -x
@@ -354,7 +355,9 @@ exec docker run --rm \
   --pull=missing \
   -v "$_shclap_script:$_shclap_script:ro" \
   -v "$_shclap_bin:/usr/local/bin/shclap:ro" \
+  -v "$_shclap_cwd:$_shclap_cwd" \
   -e SHCLAP_IN_CONTAINER=1 \
+  --workdir "$_shclap_cwd" \
   [forwarded env vars as -e NAME ...] \
   [container.args values ...] \
   ubuntu:22.04 \
@@ -363,6 +366,7 @@ exec docker run --rm \
 
 Key guarantees:
 
+- The three variables `_shclap_script`, `_shclap_bin`, and `_shclap_cwd` are emitted as shell-quoted literal values, resolved at parse time by shclap (not dynamically by the shell). All symlinks are resolved to their physical paths.
 - `--pull=<policy>` appears immediately after `--rm`; the value matches `pull_policy` verbatim.
 - If the runtime binary is not on `PATH`, the sourced file exits with code **127**.
 - All environment variables whose names start with the configured prefix are forwarded.
