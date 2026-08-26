@@ -38,15 +38,43 @@ build:
 release:
 	$(CARGO) build --release --target $(MUSL_TARGET)
 
-## tag-release - Tag and push a release (requires VERSION=x.y.z)
+## tag-release - Tag and push a release (requires VERSION=x.y.z); safe to re-run
 tag-release:
 	@if [ -z "$(VERSION)" ]; then echo "ERROR: VERSION not set (e.g., make tag-release VERSION=0.3.2)"; exit 1; fi
-	@if ! git diff --quiet Cargo.toml Cargo.lock 2>/dev/null; then echo "ERROR: Cargo.toml or Cargo.lock has uncommitted changes"; exit 1; fi
+	@branch=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ "$$branch" != "main" ]; then \
+		echo "ERROR: releases are cut from main (currently on '$$branch')"; exit 1; \
+	fi
+	@bad=$$(git diff -U0 -- Cargo.toml Cargo.lock | grep '^+[^+]' | grep -vx '+version = "$(VERSION)"' || true); \
+	bad="$$bad$$(git diff -U0 -- Cargo.toml Cargo.lock | grep '^-[^-]' | grep -v '^-version = ' || true)"; \
+	if [ -n "$$bad" ]; then \
+		echo "ERROR: Cargo.toml or Cargo.lock has uncommitted changes beyond the version bump:"; \
+		echo "$$bad"; exit 1; \
+	fi
 	sed -i 's/^version = "[^"]*"/version = "$(VERSION)"/' Cargo.toml
 	$(CARGO) update -p $(BINARY_NAME)
 	git add Cargo.toml Cargo.lock
-	git commit -m "chore(release): bump version to $(VERSION)"
-	git tag v$(VERSION)
+	@pending=0; git diff --cached --quiet -- Cargo.toml Cargo.lock || pending=1; \
+	head=$$(git rev-parse HEAD); \
+	local_tag=$$(git rev-parse -q --verify "refs/tags/v$(VERSION)^{commit}" || true); \
+	remote_tag=$$(git ls-remote origin "refs/tags/v$(VERSION)" "refs/tags/v$(VERSION)^{}" | tail -1 | awk '{print $$1}'); \
+	for existing in $$local_tag $$remote_tag; do \
+		if [ "$$pending" = "1" ] || [ "$$existing" != "$$head" ]; then \
+			echo "ERROR: tag v$(VERSION) already exists at $$existing (HEAD is $$head)"; \
+			echo "       pick a new VERSION, or delete the tag to re-cut the release"; \
+			exit 1; \
+		fi; \
+	done; \
+	if [ "$$pending" = "1" ]; then \
+		git commit -m "chore(release): bump version to $(VERSION)"; \
+	else \
+		echo "Version already committed as $(VERSION), reusing HEAD"; \
+	fi; \
+	if [ -z "$$local_tag" ]; then \
+		git tag v$(VERSION); \
+	else \
+		echo "Tag v$(VERSION) already points at HEAD, reusing"; \
+	fi
 	git push origin main
 	git push origin v$(VERSION)
 	@echo "Released v$(VERSION)"
