@@ -51,11 +51,11 @@ This skip behavior prevents:
 
 When bootstrapping into a container, shclap automatically:
 
-1. Captures the caller's working directory using `pwd`
+1. Resolves the caller's working directory at parse time, emitting it as a shell-quoted literal (symlinks are resolved to their physical paths)
 2. Bind-mounts this directory read-write into the container at the same path
 3. Sets the container's `--workdir` to this directory
 
-This ensures that relative paths in your script work correctly inside the container, as if the script were running directly on the host.
+This ensures that relative paths in your script work correctly inside the container, as if the script were running directly on the host. **Note:** The emitted working directory is resolved at parse time, not at runtime by the shell. All symlinks are resolved to their physical paths. This is a visible behavioral change from earlier releases.
 
 **Override via `container.args`:**
 
