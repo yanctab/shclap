@@ -1492,6 +1492,36 @@ else
 fi
 rm -f "$OUTPUT_FILE"
 
+section "23. Container CWD — Symlink Resolution"
+
+# AC1: Container reexec script resolves to physical path when invoked from symlink directory
+run_test
+unset SHCLAP_IN_CONTAINER 2>/dev/null || true
+REAL_WORK_DIR=$(mktemp -d)
+SYMLINK_WORK_DIR="/tmp/shclap_symlink_work_$$"
+ln -s "$REAL_WORK_DIR" "$SYMLINK_WORK_DIR"
+PHYSICAL_PATH=$(realpath "$REAL_WORK_DIR")
+SHCLAP_ABS=$(cd "$(dirname "$SHCLAP")" && pwd)/$(basename "$SHCLAP")
+CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+OUTPUT_FILE=$(cd "$SYMLINK_WORK_DIR" && "$SHCLAP_ABS" parse --config "$CONTAINER_CONFIG" --container-marker-root /nonexistent -- -v 2>/dev/null)
+if [[ -f "$OUTPUT_FILE" ]]; then
+    OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+    rm -f "$OUTPUT_FILE"
+else
+    OUTPUT_CONTENTS=""
+fi
+SYMLINK_ESCAPED=$(printf '%s\n' "$SYMLINK_WORK_DIR" | sed 's:[[\.*^$/]:\\&:g')
+PHYSICAL_ESCAPED=$(printf '%s\n' "$PHYSICAL_PATH" | sed 's:[[\.*^$/]:\\&:g')
+rm -f "$SYMLINK_WORK_DIR"
+rm -rf "$REAL_WORK_DIR"
+if echo "$OUTPUT_CONTENTS" | grep -qE "_shclap_cwd='?${PHYSICAL_ESCAPED}"; then
+    pass "Container CWD resolves to physical path when invoked from symlink"
+elif echo "$OUTPUT_CONTENTS" | grep -qE "_shclap_cwd=.*${SYMLINK_ESCAPED}"; then
+    fail "Container CWD symlink resolution" "physical path ${PHYSICAL_PATH}" "symlink path ${SYMLINK_WORK_DIR}"
+else
+    fail "Container CWD symlink resolution" "physical path ${PHYSICAL_PATH}" "$(echo "$OUTPUT_CONTENTS" | grep '_shclap_cwd=' || echo 'not found')"
+fi
+
 #
 # Summary
 #
