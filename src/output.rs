@@ -302,7 +302,11 @@ fn shell_quote(value: &str) -> String {
 /// 4. Forwards prefix-matching and explicitly-named environment variables
 pub fn generate_container_reexec_string(container: &ContainerConfig, config: &Config) -> String {
     generate_container_reexec_string_with(
-        || std::env::current_dir().map_err(|e| anyhow::anyhow!(e)),
+        || {
+            std::env::current_dir()
+                .and_then(std::fs::canonicalize)
+                .map_err(|e| anyhow::anyhow!(e))
+        },
         || std::env::current_exe().map_err(|e| anyhow::anyhow!(e)),
         || {
             std::env::args()
@@ -1270,6 +1274,7 @@ mod tests {
         // Check that _shclap_cwd (literal value) appears before exec line (new form)
         assert!(output.contains("_shclap_cwd="));
         assert!(!output.contains("_shclap_cwd=$(pwd)"));
+        assert!(!output.contains("_shclap_cwd=$(pwd -P)"));
         let cwd_pos = output.find("_shclap_cwd=").unwrap();
         let exec_pos = output.find("exec docker run").unwrap();
         assert!(
