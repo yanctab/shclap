@@ -22,7 +22,7 @@ CONFIG='{
     {"name": "name", "type": "positional", "required": true}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 echo "Hello, $SHCLAP_NAME!"
 ```
 

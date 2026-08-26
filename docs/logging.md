@@ -21,7 +21,7 @@ After sourcing the output of `shclap parse`, you can call any of the five helper
 ```bash
 #!/bin/bash
 CONFIG='{"name":"myapp","args":[]}'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 # Use the helper functions
 log_info "Application started"
@@ -37,7 +37,7 @@ You can override the emitted helper functions by declaring your own after sourci
 
 ```bash
 #!/bin/bash
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 # Define your own log_info
 log_info() {

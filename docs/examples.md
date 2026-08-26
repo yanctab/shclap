@@ -16,7 +16,7 @@ CONFIG='{
     {"name": "output", "short": "o", "type": "option", "required": true, "help": "Output file"}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 if [[ "$SHCLAP_VERBOSE" == "true" ]]; then
   echo "Verbose mode enabled"
@@ -47,7 +47,7 @@ CONFIG='{
     {"name": "format", "short": "f", "type": "option", "default": "json", "help": "Output format"}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 echo "Converting $SHCLAP_INPUT to $SHCLAP_OUTPUT (format: $SHCLAP_FORMAT)"
 ```
@@ -75,7 +75,7 @@ CONFIG='{
     {"name": "endpoint", "type": "positional", "required": true}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 curl -H "Authorization: Bearer $API_KEY" "https://$API_HOST/$API_ENDPOINT"
 ```
@@ -133,7 +133,7 @@ CONFIG='{
     {"name": "dry_run", "short": "n", "type": "flag", "help": "Show what would be done"}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 echo "Processing ${#SHCLAP_FILES[@]} files..."
 for file in "${SHCLAP_FILES[@]}"; do
@@ -167,7 +167,7 @@ CONFIG='{
     {"name": "item", "type": "positional", "required": true}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 echo "Adding tags to $SHCLAP_ITEM:"
 for tag in "${SHCLAP_TAGS[@]}"; do
@@ -221,7 +221,7 @@ CONFIG='{
     }
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 # Global flag applies to all subcommands
 log() {
@@ -288,7 +288,7 @@ CONFIG='{
     {"name": "notify", "type": "option", "multiple": true, "help": "Slack channels to notify"}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 # Validate environment
 if [[ "$SHCLAP_ENVIRONMENT" != "staging" && "$SHCLAP_ENVIRONMENT" != "production" ]]; then
@@ -371,7 +371,7 @@ CONFIG='{
     {"name": "input", "type": "positional", "required": true, "help": "Input data file"}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 echo "Analyzing $SHCLAP_INPUT with threshold: $SHCLAP_THRESHOLD"
 ```
@@ -431,7 +431,7 @@ if [[ -z "${SHCLAP_IN_CONTAINER:-}" ]]; then
   # This runs only on the first (host) pass
 fi
 
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 # All code below runs inside the container
 echo "Running inside container"
@@ -470,7 +470,7 @@ CONFIG='{
   },
   "args": [{"name": "verbose", "short": "v", "type": "flag"}]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 # docker run --pull=always ... ubuntu:22.04 ...
 ```
 
@@ -489,7 +489,7 @@ CONFIG='{
   },
   "args": [{"name": "verbose", "short": "v", "type": "flag"}]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 # docker run --pull=missing ... ubuntu:22.04 ...
 ```
 
@@ -508,7 +508,7 @@ CONFIG='{
   },
   "args": [{"name": "verbose", "short": "v", "type": "flag"}]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 # docker run --pull=never ... ubuntu:22.04 ...
 ```
 
@@ -540,7 +540,7 @@ if [[ -z "${SHCLAP_IN_CONTAINER:-}" ]]; then
   echo "Host pass: checking prerequisites..."
 fi
 
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 echo "Inside Podman container"
 echo "Output: $SHCLAP_OUTPUT"
@@ -577,7 +577,7 @@ CONFIG='{
     {"name": "token", "long": "token", "type": "option", "env": "LEGACY_API_TOKEN"}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 curl -H "Authorization: Bearer $LEGACY_API_TOKEN" "https://$API_ENDPOINT"
 ```
@@ -610,7 +610,7 @@ CONFIG='{
   },
   "args": [{"name": "verbose", "short": "v", "type": "flag"}]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 ```
 
 The generated invocation wraps unsafe values in single quotes:
@@ -669,7 +669,7 @@ CONFIG='{
     {"name": "input", "type": "positional", "required": true, "help": "Input file"}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 echo "Processing: $SHCLAP_INPUT"
 ```
 

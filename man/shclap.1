@@ -9,6 +9,8 @@ shclap \- clap-style argument parsing for shell scripts
 .IR PREFIX ]
 .B \-\-config
 .I JSON
+.B \-\-script
+.I PATH
 .B \-\-
 .IR ARGS ...
 .br
@@ -41,7 +43,7 @@ The typical usage pattern is:
 .PP
 .RS
 .nf
-source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+source $(shclap parse \-\-config "$CONFIG" \-\-script "\$0" \-\- "$@")
 .fi
 .RE
 .PP
@@ -89,6 +91,15 @@ Application name. Overrides the name specified in config. If neither CLI
 .BI \-\-prefix " PREFIX"
 Environment variable prefix. Overrides the prefix specified in config.
 Default: SHCLAP_
+.TP
+.BI \-\-script " PATH"
+Path to the calling script. Pass
+.B "$0"
+so shclap can canonicalize it at parse time and emit it as a literal
+in the container re-exec fragment. Required when the configuration
+includes a
+.B container
+block.
 .TP
 .B \-\-
 Separator between shclap options and the script arguments to parse.
@@ -398,7 +409,7 @@ CONFIG='{
     {"name": "name", "type": "positional", "required": true, "help": "Name to greet"}
   ]
 }'
-source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+source $(shclap parse \-\-config "$CONFIG" \-\-script "\$0" \-\- "$@")
 echo "Hello, $SHCLAP_NAME!"
 .fi
 .RE
@@ -420,7 +431,7 @@ CONFIG='{
     {"name": "source", "type": "positional", "required": true, "help": "Source path"}
   ]
 }'
-source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+source $(shclap parse \-\-config "$CONFIG" \-\-script "\$0" \-\- "$@")
 
 [[ "$BACKUP_VERBOSE" == "true" ]] && echo "Backing up $BACKUP_SOURCE to $BACKUP_DEST"
 # ... rest of script
@@ -442,7 +453,7 @@ CONFIG='{
     {"name": "secret", "long": "secret", "type": "option", "env": false}
   ]
 }'
-source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+source $(shclap parse \-\-config "$CONFIG" \-\-script "\$0" \-\- "$@")
 # $DEPLOY_TOKEN comes from \-\-token or $DEPLOY_TOKEN env var (auto)
 # $DEPLOY_SECRET only comes from \-\-secret (env disabled)
 .fi
@@ -460,7 +471,7 @@ CONFIG='{
      "help": "Files to process"}
   ]
 }'
-source $(shclap parse \-\-config "$CONFIG" \-\- \-\-file a.txt \-\-file b.txt)
+source $(shclap parse \-\-config "$CONFIG" \-\-script "\$0" \-\- \-\-file a.txt \-\-file b.txt)
 for f in "${SHCLAP_FILES[@]}"; do
   echo "Processing $f"
 done
@@ -481,7 +492,7 @@ CONFIG='{
      "args": [{"name": "release", "short": "r", "type": "flag"}]}
   ]
 }'
-source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+source $(shclap parse \-\-config "$CONFIG" \-\-script "\$0" \-\- "$@")
 case "$SHCLAP_SUBCOMMAND" in
   init) echo "Template: $SHCLAP_TEMPLATE" ;;
   build) [[ "$SHCLAP_RELEASE" == "true" ]] && echo "Release build" ;;
@@ -630,7 +641,7 @@ Color style:
 Example usage:
 .RS
 .nf
-source $(shclap parse \-\-config "$CONFIG" \-\- "$@")
+source $(shclap parse \-\-config "$CONFIG" \-\-script "\$0" \-\- "$@")
 log_info "Application started"
 log_warn "Warning message"
 .fi

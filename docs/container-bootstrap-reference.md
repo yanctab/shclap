@@ -82,14 +82,14 @@ CONFIG='{
   "image": "myapp:latest",
   ...
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 # No signals detected → bootstrap reexecution occurs
 ```
 
 **Example 2: Same script called from inside a Docker container**
 ```bash
 # Inside Docker container, $SHCLAP_IN_CONTAINER or /.dockerenv detected
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 # Signal detected → bootstrap reexecution SKIPPED, normal parsing proceeds
 ```
 

@@ -46,7 +46,7 @@ CONFIG='{
     {"name": "input", "type": "positional"}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 ```
 
 ### Limitations
@@ -131,7 +131,7 @@ CONFIG='{
     {"name": "files", "long": "file", "type": "option", "multiple": true}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- --file a.txt --file b.txt)
+source $(shclap parse --config "$CONFIG" --script "$0" -- --file a.txt --file b.txt)
 # $SHCLAP_FILES is a bash array: ("a.txt" "b.txt")
 for f in "${SHCLAP_FILES[@]}"; do
   echo "Processing $f"
@@ -249,7 +249,7 @@ CONFIG='{
     }
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 ```
 
 #### Handling Subcommands

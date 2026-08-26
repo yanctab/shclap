@@ -160,7 +160,7 @@ if [[ -z "${SHCLAP_IN_CONTAINER:-}" ]]; then
   echo "Preparing on the host..."
 fi
 
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 # Runs inside the container (second pass)
 echo "Inside container. Verbose: $SHCLAP_VERBOSE"

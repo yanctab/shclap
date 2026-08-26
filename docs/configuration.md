@@ -272,7 +272,7 @@ A minimal configuration using the long option fallback feature:
 Usage with CLI `--name` flag:
 
 ```bash
-source $(shclap parse --config="$CONFIG" --name="$(basename "$0")" -- "$@")
+source $(shclap parse --config="$CONFIG" --name="$(basename "$0")" --script "$0" -- "$@")
 ```
 
 This accepts: `--verbose`, `--output=file.txt`, and positional `input.txt`.

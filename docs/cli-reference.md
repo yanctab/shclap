@@ -9,7 +9,7 @@ This document covers shclap's command-line interface and all available options.
 Parse command-line arguments according to the JSON configuration and output a sourceable shell script.
 
 ```bash
-shclap parse --config=<JSON> [--name=<NAME>] [--prefix=<PREFIX>] -- [ARGS...]
+shclap parse --config=<JSON> [--name=<NAME>] [--prefix=<PREFIX>] --script "$0" -- [ARGS...]
 ```
 
 **Arguments:**
@@ -19,13 +19,14 @@ shclap parse --config=<JSON> [--name=<NAME>] [--prefix=<PREFIX>] -- [ARGS...]
 | `--config=<JSON>` | JSON configuration string (required) |
 | `--name=<NAME>` | Application name (overrides config `name` field) |
 | `--prefix=<PREFIX>` | Environment variable prefix (default: `SHCLAP_`) |
+| `--script=<PATH>` | Path to the calling script; pass `"$0"` (required) |
 | `--` | Separator between shclap options and script arguments |
 | `[ARGS...]` | Arguments to parse (typically `"$@"`) |
 
 **Example:**
 
 ```bash
-source $(shclap parse --config='{"args":[]}' --name=myapp -- "$@")
+source $(shclap parse --config='{"args":[]}' --name=myapp --script "$0" -- "$@")
 ```
 
 **Note on Container Bootstrap:**
@@ -101,7 +102,7 @@ CONFIG='{
     {"name": "verbose", "short": "v", "type": "flag"}
   ]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 # Log how the script was called
 echo "Running: $(shclap print --config "$CONFIG" --name deploy)"
@@ -166,11 +167,11 @@ Can be provided as:
 
 ```bash
 # Inline
-shclap parse --config='{"name":"app","args":[]}' -- "$@"
+shclap parse --config='{"name":"app","args":[]}' --script "$0" -- "$@"
 
 # Variable
 CONFIG='{"name":"app","args":[]}'
-shclap parse --config="$CONFIG" -- "$@"
+shclap parse --config="$CONFIG" --script "$0" -- "$@"
 ```
 
 ### `--name=<NAME>`
@@ -183,13 +184,13 @@ If neither is provided, shclap will return an error.
 
 ```bash
 # Name from --name flag (config doesn't need 'name' field)
-shclap parse --config='{"args":[]}' --name="$0" -- "$@"
+shclap parse --config='{"args":[]}' --name="$0" --script "$0" -- "$@"
 
 # Name from config (no --name flag needed)
-shclap parse --config='{"name":"myapp","args":[]}' -- "$@"
+shclap parse --config='{"name":"myapp","args":[]}' --script "$0" -- "$@"
 
 # CLI overrides config
-shclap parse --config='{"name":"ignored","args":[]}' --name="actual_name" -- "$@"
+shclap parse --config='{"name":"ignored","args":[]}' --name="actual_name" --script "$0" -- "$@"
 ```
 
 ### `--prefix=<PREFIX>`
@@ -197,7 +198,7 @@ shclap parse --config='{"name":"ignored","args":[]}' --name="actual_name" -- "$@
 Override the default environment variable prefix (`SHCLAP_`).
 
 ```bash
-shclap parse --config="$CONFIG" --prefix="MYAPP_" -- "$@"
+shclap parse --config="$CONFIG" --prefix="MYAPP_" --script "$0" -- "$@"
 # Variables become: $MYAPP_VERBOSE, $MYAPP_OUTPUT, etc.
 ```
 
@@ -258,7 +259,7 @@ When parsing fails, shclap outputs an error message to stderr (via the sourced t
 Errors are delivered through the same temp file mechanism as successful parsing. When you source the output:
 
 ```bash
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 ```
 
 If parsing fails, the temp file contains:
@@ -277,7 +278,7 @@ To handle errors without immediately exiting:
 ```bash
 #!/bin/bash
 CONFIG='...'
-PARSED=$(shclap parse --config "$CONFIG" -- "$@")
+PARSED=$(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 if [[ $? -ne 0 ]]; then
   echo "Argument parsing failed" >&2
   exit 1
@@ -300,7 +301,7 @@ CONFIG='{
   "description": "My application",
   "args": [{"name": "verbose", "short": "v", "type": "flag", "help": "Enable verbose output"}]
 }'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 ```
 
 ```bash
@@ -378,7 +379,7 @@ export SHCLAP_SUBCOMMAND="build"
 ```bash
 #!/bin/bash
 CONFIG='...'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 ```
 
 ### With Error Handling
@@ -386,7 +387,7 @@ source $(shclap parse --config "$CONFIG" -- "$@")
 ```bash
 #!/bin/bash
 CONFIG='...'
-PARSED=$(shclap parse --config "$CONFIG" -- "$@")
+PARSED=$(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 if [[ $? -ne 0 ]]; then
   echo "Argument parsing failed"
   exit 1
@@ -399,7 +400,7 @@ source "$PARSED"
 ```bash
 #!/bin/bash
 CONFIG='...'
-source $(shclap parse --config "$CONFIG" --prefix="APP_" -- "$@")
+source $(shclap parse --config "$CONFIG" --prefix="APP_" --script "$0" -- "$@")
 # Use $APP_VERBOSE, $APP_OUTPUT, etc.
 ```
 

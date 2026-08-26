@@ -30,7 +30,7 @@ Override the default prefix using `--prefix` or the config `prefix` field:
 
 ```bash
 # Via CLI flag
-source $(shclap parse --config "$CONFIG" --prefix="APP_" -- "$@")
+source $(shclap parse --config "$CONFIG" --prefix="APP_" --script "$0" -- "$@")
 # Variables: $APP_VERBOSE, $APP_OUTPUT_FILE, etc.
 
 # Via config
@@ -193,7 +193,7 @@ Usage:
 ```bash
 #!/bin/bash
 CONFIG='...'  # as above
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 echo "Deploying to: $DEPLOY_TARGET"
 echo "Using token: $DEPLOY_TOKEN"
@@ -239,7 +239,7 @@ Controls the minimum log level displayed by the logging functions.
 ```bash
 #!/bin/bash
 CONFIG='...'
-source $(shclap parse --config "$CONFIG" -- "$@")
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 
 export SHCLAP_LOG=warn
 log_info "Not shown (below threshold)"    # Silenced
