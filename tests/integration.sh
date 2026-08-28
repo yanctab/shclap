@@ -99,7 +99,7 @@ fi
 # Test: Flag defaults to false
 run_test
 unset SHCLAP_DEBUG 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"debug","short":"d","type":"flag"}]}' --script "$0" --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"debug","short":"d","type":"flag"}]}' --script "$0" -- )"
 if [[ "${SHCLAP_DEBUG:-}" == "false" ]]; then
     pass "Unset flag defaults to SHCLAP_DEBUG=false"
 else
@@ -166,7 +166,7 @@ fi
 # Test: Option with default value
 run_test
 unset SHCLAP_OUTPUT 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","long":"output","type":"option","default":"default.txt"}]}' --script "$0" --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","long":"output","type":"option","default":"default.txt"}]}' --script "$0" -- )"
 if [[ "${SHCLAP_OUTPUT:-}" == "default.txt" ]]; then
     pass "Option default value (--output defaults to default.txt)"
 else
@@ -232,7 +232,7 @@ fi
 # Test: CLI prefix overrides config
 run_test
 unset CLI_DEBUG 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","prefix":"CONFIG_","args":[{"name":"debug","short":"d","type":"flag"}]}' --script --prefix CLI_ "$0" -- -d)"
+source "$("$SHCLAP" parse --config '{"name":"test","prefix":"CONFIG_","args":[{"name":"debug","short":"d","type":"flag"}]}' --script "$0" --prefix CLI_ -- -d)"
 if [[ "${CLI_DEBUG:-}" == "true" ]]; then
     pass "CLI --prefix overrides config prefix (CLI_DEBUG)"
 else
@@ -323,7 +323,7 @@ fi
 
 # Test: Missing required argument
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"input","type":"positional","required":true}]}' --script "$0" --script "$0" -- )
+OUTPUT=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"input","type":"positional","required":true}]}' --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "missing required"; then
     pass "Missing required argument produces error"
@@ -333,7 +333,7 @@ fi
 
 # Test: Unsupported schema version
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"schema_version":99,"name":"test"}' --script "$0" --script "$0" -- )
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":99,"name":"test"}' --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "unsupported schema version"; then
     pass "Unsupported schema version produces error"
@@ -389,7 +389,7 @@ unset SHCLAP_INPUT 2>/dev/null || true
 export TEST_INPUT_VAR="from_environment"
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"input","long":"input","type":"option","env":"TEST_INPUT_VAR"}
-]}' --script "$0" --script "$0" -- )"
+]}' --script "$0" -- )"
 if [[ "${SHCLAP_INPUT:-}" == "from_environment" ]]; then
     pass "Env var fallback (TEST_INPUT_VAR) sets SHCLAP_INPUT"
 else
@@ -417,7 +417,7 @@ unset SHCLAP_CONFIG 2>/dev/null || true
 export SHCLAP_CONFIG="auto_env_value"
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"config","long":"config","type":"option"}
-]}' --script "$0" --script "$0" -- )"
+]}' --script "$0" -- )"
 if [[ "${SHCLAP_CONFIG:-}" == "auto_env_value" ]]; then
     pass "Auto-env reads from PREFIX + ARG_NAME (SHCLAP_CONFIG)"
 else
@@ -431,7 +431,7 @@ unset MYAPP_DEBUG 2>/dev/null || true
 export MYAPP_DEBUG="true"
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","prefix":"MYAPP_","args":[
     {"name":"debug","long":"debug","type":"option"}
-]}' --script "$0" --script "$0" -- )"
+]}' --script "$0" -- )"
 if [[ "${MYAPP_DEBUG:-}" == "true" ]]; then
     pass "Auto-env with custom prefix reads from MYAPP_DEBUG"
 else
@@ -459,7 +459,7 @@ unset SHCLAP_SECRET 2>/dev/null || true
 export SHCLAP_SECRET="should_not_be_read"
 OUTPUT_FILE=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"secret","long":"secret","type":"option","env":false}
-]}' --script "$0" --script "$0" -- )
+]}' --script "$0" -- )
 # The output file should NOT contain SHCLAP_SECRET since env is disabled
 if ! grep -q "SHCLAP_SECRET" "$OUTPUT_FILE"; then
     pass "Opt-out (env: false) does not read from env"
@@ -474,7 +474,7 @@ unset SHCLAP_LEGACY 2>/dev/null || true
 export SHCLAP_LEGACY="should_not_be_read"
 OUTPUT_FILE=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
     {"name":"legacy","long":"legacy","type":"option"}
-]}' --script "$0" --script "$0" -- )
+]}' --script "$0" -- )
 # The output file should NOT contain SHCLAP_LEGACY since v1 has no auto-env
 if ! grep -q "SHCLAP_LEGACY" "$OUTPUT_FILE"; then
     pass "v1 schema does not enable auto-env"
@@ -603,7 +603,7 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","subcommands":[
     {"name":"init"}
-]}' --script "$0" --script "$0" -- )
+]}' --script "$0" -- )
 HELP_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$HELP_OUTPUT" | grep -qi "usage\|init"; then
     pass "Missing subcommand shows help/usage"
@@ -618,7 +618,7 @@ section "14. Schema Version 2 - Validation Errors"
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
     {"name":"input","long":"input","type":"option","env":"MY_VAR"}
-]}' --script "$0" --script "$0" -- )
+]}' --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "requires schema_version"; then
     pass "Field 'env' rejected in schema v1"
@@ -630,7 +630,7 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
     {"name":"files","long":"file","type":"option","multiple":true}
-]}' --script "$0" --script "$0" -- )
+]}' --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "requires schema_version"; then
     pass "Field 'multiple' rejected in schema v1"
@@ -642,7 +642,7 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","subcommands":[
     {"name":"init"}
-]}' --script "$0" --script "$0" -- )
+]}' --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "require.*schema_version"; then
     pass "Subcommands rejected in schema v1"
@@ -676,7 +676,7 @@ CONFIG='{"name":"myapp","args":[
     {"name":"input","type":"positional"}
 ]}'
 # First parse to set env vars
-source "$("$SHCLAP" parse --config "$CONFIG" -- -v -o result.txt data.csv)"
+source "$("$SHCLAP" parse --config "$CONFIG" --script "$0" -- -v -o result.txt data.csv)"
 # Then use print to reconstruct
 PRINT_OUTPUT=$("$SHCLAP" print --config "$CONFIG" --name myapp)
 if echo "$PRINT_OUTPUT" | grep -q "myapp" && echo "$PRINT_OUTPUT" | grep -q "verbose\|\\-v" && echo "$PRINT_OUTPUT" | grep -q "result.txt"; then
@@ -883,7 +883,7 @@ unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 export SHCLAP_IN_CONTAINER=1
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
 STDERR_FILE=$(mktemp)
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- -v 2>"$STDERR_FILE")
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- -v 2>"$STDERR_FILE")
 unset SHCLAP_IN_CONTAINER
 if [[ -n "$OUTPUT_FILE" ]] && ! grep -q "already inside container" "$STDERR_FILE"; then
     pass "SHCLAP_IN_CONTAINER=1 emits path, no stderr skip message"
@@ -899,7 +899,7 @@ TMPDIR=$(mktemp -d)
 touch "$TMPDIR/.dockerenv"
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
 STDERR_FILE=$(mktemp)
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --container-marker-root "$TMPDIR" -- -v 2>"$STDERR_FILE")
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" --container-marker-root "$TMPDIR" -- -v 2>"$STDERR_FILE")
 if [[ -n "$OUTPUT_FILE" ]] && grep -q "container detected via /.dockerenv, skipping reexec" "$STDERR_FILE"; then
     pass "/.dockerenv detected emits path and skip message"
 else
@@ -913,7 +913,7 @@ run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
 STDERR_FILE=$(mktemp)
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --container-marker-root /nonexistent -- -v 2>"$STDERR_FILE")
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" --container-marker-root /nonexistent -- -v 2>"$STDERR_FILE")
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q "exec docker run"; then
     pass "No signals with container config triggers reexec"
@@ -928,7 +928,7 @@ unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}'
 STDERR_FILE=$(mktemp)
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config "$CONFIG" --container-marker-root /nonexistent -- -v 2>"$STDERR_FILE")"
+source "$("$SHCLAP" parse --config "$CONFIG" --script "$0" --container-marker-root /nonexistent -- -v 2>"$STDERR_FILE")"
 if [[ "${SHCLAP_VERBOSE:-}" == "true" ]]; then
     pass "No signals without container config produces normal exports"
 else
@@ -940,7 +940,7 @@ rm -f "$STDERR_FILE"
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"podman","image":"fedora:39","args":[]}}'
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q "command -v podman" && echo "$OUTPUT_CONTENTS" | grep -q "container runtime 'podman' not found"; then
     pass "container reexec output includes runtime availability check"
@@ -953,7 +953,7 @@ rm -f "$OUTPUT_FILE"
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- --help 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- --help 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q "exit 0" && ! echo "$OUTPUT_CONTENTS" | grep -q "exec docker run"; then
     pass "Help outcome is unaffected by container config"
@@ -966,7 +966,7 @@ rm -f "$OUTPUT_FILE"
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"testapp","version":"1.0.0","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- --version 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- --version 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q "exit 0" && ! echo "$OUTPUT_CONTENTS" | grep -q "exec docker run"; then
     pass "Version outcome is unaffected by container config"
@@ -1012,7 +1012,7 @@ fi
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"testscript","container":{"runtime":"docker","image":"test-image:latest","args":[]},"args":[{"name":"foo","short":"f","type":"option"}]}'
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 
 # Verify all required elements are present
@@ -1057,7 +1057,7 @@ rm -f "$OUTPUT_FILE"
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"test-image:latest","args":["--network","host"]}}'
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- -v 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- -v 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 
 # Check for all three CWD-related lines
@@ -1108,8 +1108,8 @@ unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 MARKER_DIR=$(mktemp -d)
 touch "$MARKER_DIR/.dockerenv"
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
-STDERR_OUTPUT=$("$SHCLAP" parse --container-marker-root "$MARKER_DIR" --config "$CONTAINER_CONFIG" -- -v 2>&1 >/dev/null)
-OUTPUT_FILE=$("$SHCLAP" parse --container-marker-root "$MARKER_DIR" --config "$CONTAINER_CONFIG" -- -v 2>/dev/null)
+STDERR_OUTPUT=$("$SHCLAP" parse --container-marker-root "$MARKER_DIR" --config "$CONTAINER_CONFIG" --script "$0" -- -v 2>&1 >/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --container-marker-root "$MARKER_DIR" --config "$CONTAINER_CONFIG" --script "$0" -- -v 2>/dev/null)
 unset SHCLAP_VERBOSE 2>/dev/null || true
 source "$OUTPUT_FILE"
 rm -rf "$MARKER_DIR"
@@ -1127,7 +1127,7 @@ section "21. Container Pull Policy"
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[]}}'
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=missing"; then
     pass "pull_policy omitted defaults to --pull=missing"
@@ -1140,7 +1140,7 @@ rm -f "$OUTPUT_FILE"
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[],"pull_policy":"always"}}'
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=always"; then
     pass "pull_policy: always emits --pull=always"
@@ -1153,7 +1153,7 @@ rm -f "$OUTPUT_FILE"
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[],"pull_policy":"never"}}'
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=never"; then
     pass "pull_policy: never emits --pull=never"
@@ -1166,7 +1166,7 @@ rm -f "$OUTPUT_FILE"
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"docker","image":"alpine:3","args":[],"pull_policy":"bogus"}}'
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- 2>/dev/null)
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT_FILE'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "pull_policy" || echo "$ERROR_OUTPUT" | grep -q "unknown"; then
     pass "invalid pull_policy value produces error"
@@ -1179,7 +1179,7 @@ rm -f "$OUTPUT_FILE"
 run_test
 unset SHCLAP_IN_CONTAINER 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","container":{"runtime":"podman","image":"fedora:39","args":[],"pull_policy":"always"}}'
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q "exec podman run" && echo "$OUTPUT_CONTENTS" | grep -q -- "--pull=always"; then
     pass "pull_policy works with podman runtime"
@@ -1372,7 +1372,7 @@ export PATH="$(dirname "$SHCLAP"):$PATH"
 # AC1: After source $(shclap parse ...), declare -F log_info exits 0
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 if declare -F log_info >/dev/null 2>&1; then
     pass "log_info helper function is defined after parse"
 else
@@ -1382,7 +1382,7 @@ fi
 # Test: all five log helper functions are defined
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 declare -F log_error >/dev/null 2>&1 && \
 declare -F log_warn >/dev/null 2>&1 && \
 declare -F log_info >/dev/null 2>&1 && \
@@ -1397,7 +1397,7 @@ fi
 # AC2: SHCLAP_LOG=info log_info "msg" writes INFO: msg to stderr
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 OUTPUT=$(SHCLAP_LOG=info log_info "test message" 2>&1 1>/dev/null)
 if echo "$OUTPUT" | grep -q "INFO: test message"; then
     pass "log_info with SHCLAP_LOG=info outputs INFO: msg"
@@ -1408,7 +1408,7 @@ fi
 # AC3: SHCLAP_LOG=error log_info "msg" produces no output
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 OUTPUT=$(SHCLAP_LOG=error log_info "test message" 2>&1 1>/dev/null) || true
 if [[ -z "$OUTPUT" ]]; then
     pass "log_info with SHCLAP_LOG=error produces no output"
@@ -1419,7 +1419,7 @@ fi
 # AC4: SHCLAP_LOG=off silences all five helpers
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 OUTPUT=$(SHCLAP_LOG=off log_error "err" 2>&1 1>/dev/null) || true
 OUTPUT2=$(SHCLAP_LOG=off log_warn "warn" 2>&1 1>/dev/null) || true
 OUTPUT3=$(SHCLAP_LOG=off log_info "info" 2>&1 1>/dev/null) || true
@@ -1434,7 +1434,7 @@ fi
 # AC5: User-defined log_info declared after sourcing shadows the emitted definition
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 log_info() { echo "CUSTOM_LOG"; }
 OUTPUT=$(log_info "test" 2>&1 1>&2)
 if echo "$OUTPUT" | grep -q "CUSTOM_LOG"; then
@@ -1483,7 +1483,7 @@ rm -f "$OUTPUT_FILE"
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
-OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" -- 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q "exec docker run" && ! echo "$OUTPUT_CONTENTS" | grep -q "log_info\|log_error\|log_warn\|log_debug\|log_trace"; then
     pass "log helpers do NOT appear in container reexec output"
@@ -1503,7 +1503,7 @@ ln -s "$REAL_WORK_DIR" "$SYMLINK_WORK_DIR"
 PHYSICAL_PATH=$(realpath "$REAL_WORK_DIR")
 SHCLAP_ABS=$(cd "$(dirname "$SHCLAP")" && pwd)/$(basename "$SHCLAP")
 CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
-OUTPUT_FILE=$(cd "$SYMLINK_WORK_DIR" && "$SHCLAP_ABS" parse --config "$CONTAINER_CONFIG" --container-marker-root /nonexistent -- -v 2>/dev/null)
+OUTPUT_FILE=$(timeout 5 bash -c "cd '$SYMLINK_WORK_DIR' && '$SHCLAP_ABS' parse --config '$CONTAINER_CONFIG' --script '$SHCLAP_ABS' --container-marker-root /nonexistent -- -v" 2>/dev/null) || true
 if [[ -f "$OUTPUT_FILE" ]]; then
     OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
     rm -f "$OUTPUT_FILE"
