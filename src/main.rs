@@ -359,7 +359,15 @@ mod tests {
     #[test]
     fn test_parse_subcommand_parses_name() {
         let cli = Cli::try_parse_from([
-            "shclap", "parse", "--config", r#"{}"#, "--script", "/test/script.sh", "--name", "myapp", "--",
+            "shclap",
+            "parse",
+            "--config",
+            r#"{}"#,
+            "--script",
+            "/test/script.sh",
+            "--name",
+            "myapp",
+            "--",
         ])
         .unwrap();
 

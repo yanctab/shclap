@@ -8,11 +8,32 @@ use std::env;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
+use uzers;
 
 /// Heredoc delimiter for help output.
 const HELP_DELIMITER: &str = "SHCLAP_HELP";
 /// Heredoc delimiter for version output.
 const VERSION_DELIMITER: &str = "SHCLAP_VERSION";
+
+/// Host identity information (UID and GID).
+/// Used as a test seam for container execution identity configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostIdentity {
+    /// User ID (UID)
+    pub uid: u32,
+    /// Group ID (GID)
+    pub gid: u32,
+}
+
+impl HostIdentity {
+    /// Get the current process's user and group IDs.
+    pub fn current() -> Self {
+        Self {
+            uid: uzers::get_current_uid(),
+            gid: uzers::get_current_gid(),
+        }
+    }
+}
 
 /// Shell code for log helper functions.
 /// These five functions are defined when sourcing parse output,
@@ -828,7 +849,12 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // All paths are emitted as literals resolved at parse time
         assert!(output.contains("_shclap_script=/test/script.sh"));
@@ -858,7 +884,12 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Extra args must appear verbatim before the image
         assert!(output.contains("-v \\"));
@@ -881,7 +912,12 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Unquoted, the shell would split this into two arguments.
         assert!(output.contains("  'my label' \\\n"));
@@ -904,7 +940,12 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // The generated file is sourced, so none of these may reach the shell bare.
         assert!(output.contains("  '--label=a;id' \\\n"));
@@ -924,7 +965,12 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         assert!(output.contains(r"  'it'\''s' \"));
     }
@@ -946,7 +992,12 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Values that are inert to the shell stay readable.
         assert!(output.contains("  --network \\\n  host \\\n"));
@@ -966,7 +1017,12 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         assert!(output.contains("  'ubuntu:24.04 ; id' \\\n"));
     }
@@ -1006,7 +1062,12 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let path = generate_container_reexec_output(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let path = generate_container_reexec_output(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
         assert!(path.exists());
         let contents = std::fs::read_to_string(&path).unwrap();
         assert!(contents.contains("exec docker run --rm"));
@@ -1033,7 +1094,12 @@ mod tests {
         env::set_var("MYAPP_LOG_LEVEL", "info");
         env::set_var("UNRELATED_VAR", "should_not_appear");
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Clean up
         env::remove_var("MYAPP_DEBUG");
@@ -1077,7 +1143,12 @@ mod tests {
 
         let config = Config::from_json(config_json).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Should forward custom env names
         assert!(output.contains("-e CUSTOM_VERBOSE \\"));
@@ -1113,7 +1184,12 @@ mod tests {
         // Set an env var that matches both the prefix and a custom env name
         env::set_var("SHCLAP_VERBOSE", "true");
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Clean up
         env::remove_var("SHCLAP_VERBOSE");
@@ -1134,7 +1210,12 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Should contain --pull=always immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=always \\"));
@@ -1150,7 +1231,12 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Should contain --pull=never immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=never \\"));
@@ -1166,7 +1252,12 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Should contain --pull=missing immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));
@@ -1182,7 +1273,12 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Should contain --pull=always immediately after --rm
         assert!(output.contains("exec podman run --rm \\\n  --pull=always \\"));
@@ -1198,7 +1294,12 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Should contain --pull=never immediately after --rm
         assert!(output.contains("exec podman run --rm \\\n  --pull=never \\"));
@@ -1214,7 +1315,12 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Should contain --pull=missing immediately after --rm
         assert!(output.contains("exec podman run --rm \\\n  --pull=missing \\"));
@@ -1231,7 +1337,12 @@ mod tests {
         .unwrap();
         let container = config.container.as_ref().unwrap();
 
-        let output = generate_container_reexec_string(container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Should contain --pull=missing (the verbatim string for PullPolicy::Missing) immediately after --rm
         assert!(output.contains("exec docker run --rm \\\n  --pull=missing \\"));
@@ -1249,7 +1360,12 @@ mod tests {
         };
         let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Check that _shclap_cwd (literal value) appears before exec line (new form)
         assert!(output.contains("_shclap_cwd="));
@@ -1307,7 +1423,12 @@ mod tests {
         env::set_var("SHCLAP_LOG", "debug");
         env::set_var("SHCLAP_LOG_STYLE", "always");
 
-        let output = generate_container_reexec_string(&container, &config, std::path::Path::new("/test/script.sh")).unwrap();
+        let output = generate_container_reexec_string(
+            &container,
+            &config,
+            std::path::Path::new("/test/script.sh"),
+        )
+        .unwrap();
 
         // Clean up
         env::remove_var("SHCLAP_LOG");
@@ -1510,5 +1631,18 @@ mod tests {
             generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config);
 
         assert!(result.is_err());
+    }
+
+    // --- HostIdentity tests (issue #116) ---
+
+    #[test]
+    fn test_host_identity_current() {
+        // Criterion 6: HostIdentity::current() calls uzers::get_current_uid() and uzers::get_current_gid()
+        let identity = HostIdentity::current();
+        // The current process has valid uid/gid
+        let actual_uid = uzers::get_current_uid();
+        let actual_gid = uzers::get_current_gid();
+        assert_eq!(identity.uid, actual_uid);
+        assert_eq!(identity.gid, actual_gid);
     }
 }

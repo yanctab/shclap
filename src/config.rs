@@ -244,6 +244,13 @@ pub struct ContainerConfig {
     /// Container image pull policy (default: Missing)
     #[serde(default)]
     pub pull_policy: PullPolicy,
+    /// Whether to run with host user identity (default: true)
+    #[serde(default = "default_true")]
+    pub host_user: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Configuration for a subcommand (schema_version >= 2).
@@ -2041,5 +2048,58 @@ mod tests {
             }
             _ => panic!("Expected ExpandError with field context"),
         }
+    }
+
+    // --- ContainerConfig.host_user tests (issue #116) ---
+
+    #[test]
+    fn test_container_host_user_defaults_true() {
+        // Criterion 3: Parsing a container block that omits `host_user` deserializes `host_user` as `true`
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04"}
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.host_user, true);
+    }
+
+    #[test]
+    fn test_container_host_user_explicit_true() {
+        // Criterion 4: Parsing `"host_user": true` deserializes as `true`
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04", "host_user": true}
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.host_user, true);
+    }
+
+    #[test]
+    fn test_container_host_user_explicit_false() {
+        // Criterion 4: Parsing `"host_user": false` deserializes as `false`
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04", "host_user": false}
+        }"#;
+        let config = Config::from_json(json).unwrap();
+        let container = config.container.as_ref().unwrap();
+        assert_eq!(container.host_user, false);
+    }
+
+    #[test]
+    fn test_container_host_user_invalid_type_errors() {
+        // Criterion 5: Passing a non-bool value for `host_user` produces a serde error
+        let json = r#"{
+            "schema_version": 2,
+            "name": "test",
+            "container": {"runtime": "docker", "image": "ubuntu:22.04", "host_user": "true"}
+        }"#;
+        let result = Config::from_json(json);
+        assert!(result.is_err());
     }
 }
