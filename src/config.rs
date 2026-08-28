@@ -232,7 +232,7 @@ pub struct ArgConfig {
 }
 
 /// Configuration for running the command inside a container (schema_version >= 2).
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ContainerConfig {
     /// Container runtime: "docker" or "podman"
     pub runtime: String,
@@ -251,6 +251,18 @@ pub struct ContainerConfig {
 
 fn default_true() -> bool {
     true
+}
+
+impl Default for ContainerConfig {
+    fn default() -> Self {
+        Self {
+            runtime: String::new(),
+            image: String::new(),
+            args: Vec::new(),
+            pull_policy: PullPolicy::default(),
+            host_user: true,
+        }
+    }
 }
 
 /// Configuration for a subcommand (schema_version >= 2).
