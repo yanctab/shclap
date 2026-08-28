@@ -79,7 +79,7 @@ section "1. Basic Flag Parsing"
 # Test: Short flag
 run_test
 unset SHCLAP_DEBUG 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"debug","short":"d","type":"flag"}]}' -- -d)"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"debug","short":"d","type":"flag"}]}' --script "$0" -- -d)"
 if [[ "${SHCLAP_DEBUG:-}" == "true" ]]; then
     pass "Short flag (-d) sets SHCLAP_DEBUG=true"
 else
@@ -89,7 +89,7 @@ fi
 # Test: Long flag
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","long":"verbose","type":"flag"}]}' -- --verbose)"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","long":"verbose","type":"flag"}]}' --script "$0" -- --verbose)"
 if [[ "${SHCLAP_VERBOSE:-}" == "true" ]]; then
     pass "Long flag (--verbose) sets SHCLAP_VERBOSE=true"
 else
@@ -99,7 +99,7 @@ fi
 # Test: Flag defaults to false
 run_test
 unset SHCLAP_DEBUG 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"debug","short":"d","type":"flag"}]}' -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"debug","short":"d","type":"flag"}]}' --script "$0" -- )"
 if [[ "${SHCLAP_DEBUG:-}" == "false" ]]; then
     pass "Unset flag defaults to SHCLAP_DEBUG=false"
 else
@@ -113,7 +113,7 @@ source "$("$SHCLAP" parse --config '{"name":"test","args":[
     {"name":"a","short":"a","type":"flag"},
     {"name":"b","short":"b","type":"flag"},
     {"name":"c","short":"c","type":"flag"}
-]}' -- -abc)"
+]}' --script "$0" -- -abc)"
 if [[ "${SHCLAP_A:-}" == "true" && "${SHCLAP_B:-}" == "true" && "${SHCLAP_C:-}" == "true" ]]; then
     pass "Combined short flags (-abc) sets all flags to true"
 else
@@ -126,7 +126,7 @@ section "2. Option Parsing"
 # Test: Long option with space
 run_test
 unset SHCLAP_OUTPUT 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","long":"output","type":"option"}]}' -- --output file.txt)"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","long":"output","type":"option"}]}' --script "$0" -- --output file.txt)"
 if [[ "${SHCLAP_OUTPUT:-}" == "file.txt" ]]; then
     pass "Long option with space (--output file.txt)"
 else
@@ -136,7 +136,7 @@ fi
 # Test: Long option with equals
 run_test
 unset SHCLAP_OUTPUT 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","long":"output","type":"option"}]}' -- --output=file.txt)"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","long":"output","type":"option"}]}' --script "$0" -- --output=file.txt)"
 if [[ "${SHCLAP_OUTPUT:-}" == "file.txt" ]]; then
     pass "Long option with equals (--output=file.txt)"
 else
@@ -146,7 +146,7 @@ fi
 # Test: Short option with space
 run_test
 unset SHCLAP_OUTPUT 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","short":"o","type":"option"}]}' -- -o file.txt)"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","short":"o","type":"option"}]}' --script "$0" -- -o file.txt)"
 if [[ "${SHCLAP_OUTPUT:-}" == "file.txt" ]]; then
     pass "Short option with space (-o file.txt)"
 else
@@ -156,7 +156,7 @@ fi
 # Test: Short option attached
 run_test
 unset SHCLAP_OUTPUT 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","short":"o","type":"option"}]}' -- -ofile.txt)"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","short":"o","type":"option"}]}' --script "$0" -- -ofile.txt)"
 if [[ "${SHCLAP_OUTPUT:-}" == "file.txt" ]]; then
     pass "Short option attached (-ofile.txt)"
 else
@@ -166,7 +166,7 @@ fi
 # Test: Option with default value
 run_test
 unset SHCLAP_OUTPUT 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","long":"output","type":"option","default":"default.txt"}]}' -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","long":"output","type":"option","default":"default.txt"}]}' --script "$0" -- )"
 if [[ "${SHCLAP_OUTPUT:-}" == "default.txt" ]]; then
     pass "Option default value (--output defaults to default.txt)"
 else
@@ -179,7 +179,7 @@ section "3. Positional Arguments"
 # Test: Single positional
 run_test
 unset SHCLAP_INPUT 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"input","type":"positional"}]}' -- myfile.txt)"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"input","type":"positional"}]}' --script "$0" -- myfile.txt)"
 if [[ "${SHCLAP_INPUT:-}" == "myfile.txt" ]]; then
     pass "Single positional argument"
 else
@@ -192,7 +192,7 @@ unset SHCLAP_INPUT SHCLAP_OUTPUT 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"name":"test","args":[
     {"name":"input","type":"positional"},
     {"name":"output","type":"positional"}
-]}' -- input.txt output.txt)"
+]}' --script "$0" -- input.txt output.txt)"
 if [[ "${SHCLAP_INPUT:-}" == "input.txt" && "${SHCLAP_OUTPUT:-}" == "output.txt" ]]; then
     pass "Multiple positional arguments"
 else
@@ -209,7 +209,7 @@ source "$("$SHCLAP" parse --config '{"name":"test","args":[
     {"name":"verbose","short":"v","long":"verbose","type":"flag"},
     {"name":"output","short":"o","long":"output","type":"option"},
     {"name":"input","type":"positional"}
-]}' -- -v --output result.txt myfile.txt)"
+]}' --script "$0" -- -v --output result.txt myfile.txt)"
 if [[ "${SHCLAP_VERBOSE:-}" == "true" && "${SHCLAP_OUTPUT:-}" == "result.txt" && "${SHCLAP_INPUT:-}" == "myfile.txt" ]]; then
     pass "Mixed arguments (flag + option + positional)"
 else
@@ -222,7 +222,7 @@ section "5. Custom Prefix"
 # Test: Custom prefix from config
 run_test
 unset MYAPP_DEBUG 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","prefix":"MYAPP_","args":[{"name":"debug","short":"d","type":"flag"}]}' -- -d)"
+source "$("$SHCLAP" parse --config '{"name":"test","prefix":"MYAPP_","args":[{"name":"debug","short":"d","type":"flag"}]}' --script "$0" -- -d)"
 if [[ "${MYAPP_DEBUG:-}" == "true" ]]; then
     pass "Custom prefix from config (MYAPP_DEBUG)"
 else
@@ -246,7 +246,7 @@ section "6. Help Flag Detection"
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"name":"myapp","description":"My awesome app","version":"1.0.0","args":[
     {"name":"verbose","short":"v","type":"flag","help":"Enable verbose output"}
-]}' -- --help)
+]}' --script "$0" -- --help)
 # Run source in subshell to capture output without exiting main script
 HELP_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$HELP_OUTPUT" | grep -q "myapp"; then
@@ -257,7 +257,7 @@ fi
 
 # Test: -h flag
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"name":"myapp","description":"Test app"}' -- -h)
+OUTPUT=$("$SHCLAP" parse --config '{"name":"myapp","description":"Test app"}' --script "$0" -- -h)
 HELP_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$HELP_OUTPUT" | grep -q "myapp"; then
     pass "-h displays help text and exits 0"
@@ -267,7 +267,7 @@ fi
 
 # Test: Help takes precedence over other args
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"name":"myapp","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- -v --help)
+OUTPUT=$("$SHCLAP" parse --config '{"name":"myapp","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- -v --help)
 HELP_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$HELP_OUTPUT" | grep -qi "usage"; then
     pass "--help takes precedence over other flags"
@@ -280,7 +280,7 @@ section "7. Version Flag Detection"
 
 # Test: --version flag (run in subshell since source will exit)
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"name":"myapp","version":"2.5.0"}' -- --version)
+OUTPUT=$("$SHCLAP" parse --config '{"name":"myapp","version":"2.5.0"}' --script "$0" -- --version)
 VERSION_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$VERSION_OUTPUT" | grep -q "2.5.0"; then
     pass "--version displays version and exits 0"
@@ -290,7 +290,7 @@ fi
 
 # Test: -V flag
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"name":"myapp","version":"1.0.0"}' -- -V)
+OUTPUT=$("$SHCLAP" parse --config '{"name":"myapp","version":"1.0.0"}' --script "$0" -- -V)
 VERSION_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$VERSION_OUTPUT" | grep -q "1.0.0"; then
     pass "-V displays version and exits 0"
@@ -303,7 +303,7 @@ section "8. Error Handling"
 
 # Test: Unknown option (run in subshell since source will exit 1)
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"name":"test"}' -- --unknown)
+OUTPUT=$("$SHCLAP" parse --config '{"name":"test"}' --script "$0" -- --unknown)
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "unknown option"; then
     pass "Unknown option produces error"
@@ -323,7 +323,7 @@ fi
 
 # Test: Missing required argument
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"input","type":"positional","required":true}]}' -- )
+OUTPUT=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"input","type":"positional","required":true}]}' --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "missing required"; then
     pass "Missing required argument produces error"
@@ -333,7 +333,7 @@ fi
 
 # Test: Unsupported schema version
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"schema_version":99,"name":"test"}' -- )
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":99,"name":"test"}' --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "unsupported schema version"; then
     pass "Unsupported schema version produces error"
@@ -347,7 +347,7 @@ section "9. Special Characters in Values"
 # Test: Value with spaces
 run_test
 unset SHCLAP_MSG 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"msg","long":"msg","type":"option"}]}' -- --msg "hello world")"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"msg","long":"msg","type":"option"}]}' --script "$0" -- --msg "hello world")"
 if [[ "${SHCLAP_MSG:-}" == "hello world" ]]; then
     pass "Value with spaces preserved"
 else
@@ -357,7 +357,7 @@ fi
 # Test: Value with special characters (should be escaped)
 run_test
 unset SHCLAP_MSG 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"msg","long":"msg","type":"option"}]}' -- --msg 'say "hello"')"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"msg","long":"msg","type":"option"}]}' --script "$0" -- --msg 'say "hello"')"
 if [[ "${SHCLAP_MSG:-}" == 'say "hello"' ]]; then
     pass "Value with quotes preserved"
 else
@@ -373,7 +373,7 @@ unset SHCLAP_VERBOSE SHCLAP_INPUT 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"name":"test","args":[
     {"name":"verbose","short":"v","type":"flag"},
     {"name":"input","type":"positional"}
-]}' -- -- -v)"
+]}' --script "$0" -- -- -v)"
 if [[ "${SHCLAP_VERBOSE:-}" == "false" && "${SHCLAP_INPUT:-}" == "-v" ]]; then
     pass "-- separator treats -v as positional"
 else
@@ -389,7 +389,7 @@ unset SHCLAP_INPUT 2>/dev/null || true
 export TEST_INPUT_VAR="from_environment"
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"input","long":"input","type":"option","env":"TEST_INPUT_VAR"}
-]}' -- )"
+]}' --script "$0" -- )"
 if [[ "${SHCLAP_INPUT:-}" == "from_environment" ]]; then
     pass "Env var fallback (TEST_INPUT_VAR) sets SHCLAP_INPUT"
 else
@@ -403,7 +403,7 @@ unset SHCLAP_INPUT 2>/dev/null || true
 export TEST_INPUT_VAR="from_environment"
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"input","long":"input","type":"option","env":"TEST_INPUT_VAR"}
-]}' -- --input from_cli)"
+]}' --script "$0" -- --input from_cli)"
 if [[ "${SHCLAP_INPUT:-}" == "from_cli" ]]; then
     pass "CLI arg takes precedence over env var"
 else
@@ -417,7 +417,7 @@ unset SHCLAP_CONFIG 2>/dev/null || true
 export SHCLAP_CONFIG="auto_env_value"
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"config","long":"config","type":"option"}
-]}' -- )"
+]}' --script "$0" -- )"
 if [[ "${SHCLAP_CONFIG:-}" == "auto_env_value" ]]; then
     pass "Auto-env reads from PREFIX + ARG_NAME (SHCLAP_CONFIG)"
 else
@@ -431,7 +431,7 @@ unset MYAPP_DEBUG 2>/dev/null || true
 export MYAPP_DEBUG="true"
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","prefix":"MYAPP_","args":[
     {"name":"debug","long":"debug","type":"option"}
-]}' -- )"
+]}' --script "$0" -- )"
 if [[ "${MYAPP_DEBUG:-}" == "true" ]]; then
     pass "Auto-env with custom prefix reads from MYAPP_DEBUG"
 else
@@ -445,7 +445,7 @@ unset SHCLAP_MODE 2>/dev/null || true
 export SHCLAP_MODE="from_env"
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"mode","long":"mode","type":"option"}
-]}' -- --mode from_cli)"
+]}' --script "$0" -- --mode from_cli)"
 if [[ "${SHCLAP_MODE:-}" == "from_cli" ]]; then
     pass "Auto-env: CLI arg takes precedence over env var"
 else
@@ -459,7 +459,7 @@ unset SHCLAP_SECRET 2>/dev/null || true
 export SHCLAP_SECRET="should_not_be_read"
 OUTPUT_FILE=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"secret","long":"secret","type":"option","env":false}
-]}' -- )
+]}' --script "$0" -- )
 # The output file should NOT contain SHCLAP_SECRET since env is disabled
 if ! grep -q "SHCLAP_SECRET" "$OUTPUT_FILE"; then
     pass "Opt-out (env: false) does not read from env"
@@ -474,7 +474,7 @@ unset SHCLAP_LEGACY 2>/dev/null || true
 export SHCLAP_LEGACY="should_not_be_read"
 OUTPUT_FILE=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
     {"name":"legacy","long":"legacy","type":"option"}
-]}' -- )
+]}' --script "$0" -- )
 # The output file should NOT contain SHCLAP_LEGACY since v1 has no auto-env
 if ! grep -q "SHCLAP_LEGACY" "$OUTPUT_FILE"; then
     pass "v1 schema does not enable auto-env"
@@ -491,7 +491,7 @@ run_test
 unset SHCLAP_FILES 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"files","long":"file","type":"option","multiple":true}
-]}' -- --file a.txt --file b.txt --file c.txt)"
+]}' --script "$0" -- --file a.txt --file b.txt --file c.txt)"
 if [[ "${#SHCLAP_FILES[@]}" -eq 3 && "${SHCLAP_FILES[0]}" == "a.txt" && "${SHCLAP_FILES[1]}" == "b.txt" && "${SHCLAP_FILES[2]}" == "c.txt" ]]; then
     pass "Multiple option values output as bash array"
 else
@@ -503,7 +503,7 @@ run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"verbose","short":"v","type":"flag","multiple":true}
-]}' -- -vvv)"
+]}' --script "$0" -- -vvv)"
 if [[ "${SHCLAP_VERBOSE:-}" == "3" ]]; then
     pass "Multiple flag (-vvv) counts to 3"
 else
@@ -515,7 +515,7 @@ run_test
 unset SHCLAP_TAGS 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"tags","long":"tags","type":"option","multiple":true,"delimiter":","}
-]}' -- --tags "one,two,three")"
+]}' --script "$0" -- --tags "one,two,three")"
 if [[ "${#SHCLAP_TAGS[@]}" -eq 3 && "${SHCLAP_TAGS[0]}" == "one" && "${SHCLAP_TAGS[1]}" == "two" && "${SHCLAP_TAGS[2]}" == "three" ]]; then
     pass "Delimiter splits value into array"
 else
@@ -527,7 +527,7 @@ run_test
 unset SHCLAP_FILES 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"files","long":"file","type":"option","multiple":true}
-]}' -- --file 'file with spaces.txt' --file 'another file.txt')"
+]}' --script "$0" -- --file 'file with spaces.txt' --file 'another file.txt')"
 if [[ "${#SHCLAP_FILES[@]}" -eq 2 && "${SHCLAP_FILES[0]}" == "file with spaces.txt" && "${SHCLAP_FILES[1]}" == "another file.txt" ]]; then
     pass "Multiple values preserve spaces"
 else
@@ -543,7 +543,7 @@ unset SHCLAP_SUBCOMMAND 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","subcommands":[
     {"name":"init","help":"Initialize a project"},
     {"name":"run","help":"Run the project"}
-]}' -- init)"
+]}' --script "$0" -- init)"
 if [[ "${SHCLAP_SUBCOMMAND:-}" == "init" ]]; then
     pass "Subcommand 'init' sets SHCLAP_SUBCOMMAND=init"
 else
@@ -555,7 +555,7 @@ run_test
 unset SHCLAP_SUBCOMMAND SHCLAP_TEMPLATE 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","subcommands":[
     {"name":"init","args":[{"name":"template","type":"positional"}]}
-]}' -- init mytemplate)"
+]}' --script "$0" -- init mytemplate)"
 if [[ "${SHCLAP_SUBCOMMAND:-}" == "init" && "${SHCLAP_TEMPLATE:-}" == "mytemplate" ]]; then
     pass "Subcommand with positional argument"
 else
@@ -567,7 +567,7 @@ run_test
 unset SHCLAP_SUBCOMMAND SHCLAP_VERBOSE 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","subcommands":[
     {"name":"run","args":[{"name":"verbose","short":"v","type":"flag"}]}
-]}' -- run -v)"
+]}' --script "$0" -- run -v)"
 if [[ "${SHCLAP_SUBCOMMAND:-}" == "run" && "${SHCLAP_VERBOSE:-}" == "true" ]]; then
     pass "Subcommand with flag argument"
 else
@@ -580,7 +580,7 @@ unset SHCLAP_SUBCOMMAND SHCLAP_DEBUG SHCLAP_NAME 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test",
     "args":[{"name":"debug","short":"d","type":"flag"}],
     "subcommands":[{"name":"create","args":[{"name":"name","type":"positional"}]}]
-}' -- -d create myproject)"
+}' --script "$0" -- -d create myproject)"
 if [[ "${SHCLAP_DEBUG:-}" == "true" && "${SHCLAP_SUBCOMMAND:-}" == "create" && "${SHCLAP_NAME:-}" == "myproject" ]]; then
     pass "Main command args combined with subcommand"
 else
@@ -591,7 +591,7 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"myapp","subcommands":[
     {"name":"init","help":"Initialize a new project"}
-]}' -- --help)
+]}' --script "$0" -- --help)
 HELP_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$HELP_OUTPUT" | grep -q "init" && echo "$HELP_OUTPUT" | grep -q "Initialize"; then
     pass "Subcommand appears in help output"
@@ -603,7 +603,7 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","subcommands":[
     {"name":"init"}
-]}' -- )
+]}' --script "$0" -- )
 HELP_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$HELP_OUTPUT" | grep -qi "usage\|init"; then
     pass "Missing subcommand shows help/usage"
@@ -618,7 +618,7 @@ section "14. Schema Version 2 - Validation Errors"
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
     {"name":"input","long":"input","type":"option","env":"MY_VAR"}
-]}' -- )
+]}' --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "requires schema_version"; then
     pass "Field 'env' rejected in schema v1"
@@ -630,7 +630,7 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
     {"name":"files","long":"file","type":"option","multiple":true}
-]}' -- )
+]}' --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "requires schema_version"; then
     pass "Field 'multiple' rejected in schema v1"
@@ -642,7 +642,7 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","subcommands":[
     {"name":"init"}
-]}' -- )
+]}' --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "require.*schema_version"; then
     pass "Subcommands rejected in schema v1"
@@ -658,7 +658,7 @@ run_test
 unset SHCLAP_FILES 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"files","long":"file","type":"option","multiple":true,"num_args":"1..3"}
-]}' -- --file a.txt b.txt)"
+]}' --script "$0" -- --file a.txt b.txt)"
 if [[ "${#SHCLAP_FILES[@]}" -eq 2 && "${SHCLAP_FILES[0]}" == "a.txt" && "${SHCLAP_FILES[1]}" == "b.txt" ]]; then
     pass "num_args allows multiple values per invocation"
 else
@@ -717,7 +717,7 @@ section "17. Value Type Validation (int and bool)"
 # Test: value_type: int with valid integer
 run_test
 unset SHCLAP_COUNT 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"count","long":"count","type":"option","value_type":"int"}]}' -- --count 42)"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"count","long":"count","type":"option","value_type":"int"}]}' --script "$0" -- --count 42)"
 if [[ "${SHCLAP_COUNT:-}" == "42" ]]; then
     pass "value_type: int accepts valid integer (42)"
 else
@@ -727,7 +727,7 @@ fi
 # Test: value_type: int with negative integer
 run_test
 unset SHCLAP_COUNT 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"count","long":"count","type":"option","value_type":"int"}]}' -- --count -5)"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"count","long":"count","type":"option","value_type":"int"}]}' --script "$0" -- --count -5)"
 if [[ "${SHCLAP_COUNT:-}" == "-5" ]]; then
     pass "value_type: int accepts negative integer (-5)"
 else
@@ -736,7 +736,7 @@ fi
 
 # Test: value_type: int with non-integer value produces error
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"count","long":"count","type":"option","value_type":"int"}]}' -- --count abc)
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"count","long":"count","type":"option","value_type":"int"}]}' --script "$0" -- --count abc)
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "invalid"; then
     pass "value_type: int rejects non-integer (abc) with error"
@@ -747,7 +747,7 @@ fi
 # Test: value_type: bool with "true"
 run_test
 unset SHCLAP_ENABLED 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"enabled","long":"enabled","type":"option","value_type":"bool"}]}' -- --enabled true)"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"enabled","long":"enabled","type":"option","value_type":"bool"}]}' --script "$0" -- --enabled true)"
 if [[ "${SHCLAP_ENABLED:-}" == "true" ]]; then
     pass "value_type: bool accepts \"true\""
 else
@@ -757,7 +757,7 @@ fi
 # Test: value_type: bool with "false"
 run_test
 unset SHCLAP_ENABLED 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"enabled","long":"enabled","type":"option","value_type":"bool"}]}' -- --enabled false)"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"enabled","long":"enabled","type":"option","value_type":"bool"}]}' --script "$0" -- --enabled false)"
 if [[ "${SHCLAP_ENABLED:-}" == "false" ]]; then
     pass "value_type: bool accepts \"false\""
 else
@@ -766,7 +766,7 @@ fi
 
 # Test: value_type: bool with "yes" produces error
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"enabled","long":"enabled","type":"option","value_type":"bool"}]}' -- --enabled yes)
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"enabled","long":"enabled","type":"option","value_type":"bool"}]}' --script "$0" -- --enabled yes)
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "invalid"; then
     pass "value_type: bool rejects \"yes\" with error"
@@ -780,7 +780,7 @@ section "18. Value Type Validation (double)"
 # Test: value_type: double with valid float
 run_test
 unset SHCLAP_RATIO 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' -- --ratio 3.14)"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' --script "$0" -- --ratio 3.14)"
 if [[ "${SHCLAP_RATIO:-}" == "3.14" ]]; then
     pass "value_type: double accepts valid float (3.14)"
 else
@@ -790,7 +790,7 @@ fi
 # Test: value_type: double with integer-shaped input
 run_test
 unset SHCLAP_RATIO 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' -- --ratio 42)"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' --script "$0" -- --ratio 42)"
 if [[ "${SHCLAP_RATIO:-}" == "42" ]]; then
     pass "value_type: double accepts integer-shaped input (42)"
 else
@@ -800,7 +800,7 @@ fi
 # Test: value_type: double with negative float
 run_test
 unset SHCLAP_RATIO 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' -- --ratio -2.7)"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' --script "$0" -- --ratio -2.7)"
 if [[ "${SHCLAP_RATIO:-}" == "-2.7" ]]; then
     pass "value_type: double accepts negative float (-2.7)"
 else
@@ -809,7 +809,7 @@ fi
 
 # Test: value_type: double with non-numeric input produces error
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' -- --ratio abc)
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"ratio","long":"ratio","type":"option","value_type":"double"}]}' --script "$0" -- --ratio abc)
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "invalid"; then
     pass "value_type: double rejects non-numeric (abc) with error"
@@ -820,7 +820,7 @@ fi
 # Test: value_type: double with zero
 run_test
 unset SHCLAP_VALUE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"value","long":"value","type":"option","value_type":"double"}]}' -- --value 0)"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"value","long":"value","type":"option","value_type":"double"}]}' --script "$0" -- --value 0)"
 if [[ "${SHCLAP_VALUE:-}" == "0" ]]; then
     pass "value_type: double accepts zero (0)"
 else
@@ -830,7 +830,7 @@ fi
 # Test: value_type: double with scientific notation
 run_test
 unset SHCLAP_VALUE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"value","long":"value","type":"option","value_type":"double"}]}' -- --value 1e10)"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"value","long":"value","type":"option","value_type":"double"}]}' --script "$0" -- --value 1e10)"
 if [[ "${SHCLAP_VALUE:-}" == "10000000000" ]]; then
     pass "value_type: double accepts scientific notation (1e10) and produces 10000000000"
 else
@@ -840,7 +840,7 @@ fi
 # Test: double-typed positional argument with value 3.14
 run_test
 unset SHCLAP_THRESHOLD 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"threshold","type":"positional","value_type":"double"}]}' -- 3.14)"
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"threshold","type":"positional","value_type":"double"}]}' --script "$0" -- 3.14)"
 if [[ "${SHCLAP_THRESHOLD:-}" == "3.14" ]]; then
     pass "value_type: double accepts double-typed positional argument (3.14)"
 else
@@ -1194,7 +1194,7 @@ section "13. Environment Variable Expansion"
 run_test
 unset SHCLAP_DEBUG 2>/dev/null || true
 HOME_VALUE=$(echo ~)
-OUTPUT=$("$SHCLAP" parse --config '{"name":"test","description":"Config at $HOME","args":[{"name":"debug","short":"d","type":"flag"}]}' -- -d 2>&1)
+OUTPUT=$("$SHCLAP" parse --config '{"name":"test","description":"Config at $HOME","args":[{"name":"debug","short":"d","type":"flag"}]}' --script "$0" -- -d 2>&1)
 OUTPUT_FILE="$OUTPUT"
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE" 2>/dev/null || echo "ERROR")
 # Check that the source file was created and doesn't contain shclap error messages (exit 1 is the error marker)
@@ -1236,7 +1236,7 @@ fi
 
 # Test: parse with missing variable produces error
 run_test
-OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","description":"$MISSING_VAR_THAT_DOES_NOT_EXIST","args":[]}' -- 2>&1) || true
+OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","description":"$MISSING_VAR_THAT_DOES_NOT_EXIST","args":[]}' --script "$0" -- 2>&1) || true
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT_FILE' 2>&1" || echo "error file contents")
 if echo "$ERROR_OUTPUT" | grep -qi "error\|undefined"; then
     pass "parse with missing variable produces error message"
@@ -1372,7 +1372,7 @@ export PATH="$(dirname "$SHCLAP"):$PATH"
 # AC1: After source $(shclap parse ...), declare -F log_info exits 0
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 if declare -F log_info >/dev/null 2>&1; then
     pass "log_info helper function is defined after parse"
 else
@@ -1382,7 +1382,7 @@ fi
 # Test: all five log helper functions are defined
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 declare -F log_error >/dev/null 2>&1 && \
 declare -F log_warn >/dev/null 2>&1 && \
 declare -F log_info >/dev/null 2>&1 && \
@@ -1397,7 +1397,7 @@ fi
 # AC2: SHCLAP_LOG=info log_info "msg" writes INFO: msg to stderr
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 OUTPUT=$(SHCLAP_LOG=info log_info "test message" 2>&1 1>/dev/null)
 if echo "$OUTPUT" | grep -q "INFO: test message"; then
     pass "log_info with SHCLAP_LOG=info outputs INFO: msg"
@@ -1408,7 +1408,7 @@ fi
 # AC3: SHCLAP_LOG=error log_info "msg" produces no output
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 OUTPUT=$(SHCLAP_LOG=error log_info "test message" 2>&1 1>/dev/null) || true
 if [[ -z "$OUTPUT" ]]; then
     pass "log_info with SHCLAP_LOG=error produces no output"
@@ -1419,7 +1419,7 @@ fi
 # AC4: SHCLAP_LOG=off silences all five helpers
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 OUTPUT=$(SHCLAP_LOG=off log_error "err" 2>&1 1>/dev/null) || true
 OUTPUT2=$(SHCLAP_LOG=off log_warn "warn" 2>&1 1>/dev/null) || true
 OUTPUT3=$(SHCLAP_LOG=off log_info "info" 2>&1 1>/dev/null) || true
@@ -1434,7 +1434,7 @@ fi
 # AC5: User-defined log_info declared after sourcing shadows the emitted definition
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
 log_info() { echo "CUSTOM_LOG"; }
 OUTPUT=$(log_info "test" 2>&1 1>&2)
 if echo "$OUTPUT" | grep -q "CUSTOM_LOG"; then
@@ -1446,7 +1446,7 @@ fi
 # AC6: Helper functions do NOT appear in error output
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- --invalid-flag 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- --invalid-flag 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q "exit 1" && ! echo "$OUTPUT_CONTENTS" | grep -q "log_info\|log_error\|log_warn\|log_debug\|log_trace"; then
     pass "log helpers do NOT appear in error output"
@@ -1458,7 +1458,7 @@ rm -f "$OUTPUT_FILE"
 # Test: Helper functions do NOT appear in help output
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- --help 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- --help 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q "exit 0" && ! echo "$OUTPUT_CONTENTS" | grep -q "log_info\|log_error\|log_warn\|log_debug\|log_trace"; then
     pass "log helpers do NOT appear in help output"
@@ -1470,7 +1470,7 @@ rm -f "$OUTPUT_FILE"
 # Test: Helper functions do NOT appear in version output
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","version":"1.0.0","args":[{"name":"verbose","short":"v","type":"flag"}]}' -- --version 2>/dev/null)
+OUTPUT_FILE=$("$SHCLAP" parse --config '{"name":"test","version":"1.0.0","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- --version 2>/dev/null)
 OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
 if echo "$OUTPUT_CONTENTS" | grep -q "exit 0" && ! echo "$OUTPUT_CONTENTS" | grep -q "log_info\|log_error\|log_warn\|log_debug\|log_trace"; then
     pass "log helpers do NOT appear in version output"
