@@ -192,7 +192,7 @@ unset SHCLAP_INPUT SHCLAP_OUTPUT 2>/dev/null || true
 source "$("$SHCLAP" parse --config '{"name":"test","args":[
     {"name":"input","type":"positional"},
     {"name":"output","type":"positional"}
-]}' -- input.txt output.txt)"
+]}' --script "$0" -- input.txt output.txt)"
 if [[ "${SHCLAP_INPUT:-}" == "input.txt" && "${SHCLAP_OUTPUT:-}" == "output.txt" ]]; then
     pass "Multiple positional arguments"
 else
@@ -209,7 +209,7 @@ source "$("$SHCLAP" parse --config '{"name":"test","args":[
     {"name":"verbose","short":"v","long":"verbose","type":"flag"},
     {"name":"output","short":"o","long":"output","type":"option"},
     {"name":"input","type":"positional"}
-]}' -- -v --output result.txt myfile.txt)"
+]}' --script "$0" -- -v --output result.txt myfile.txt)"
 if [[ "${SHCLAP_VERBOSE:-}" == "true" && "${SHCLAP_OUTPUT:-}" == "result.txt" && "${SHCLAP_INPUT:-}" == "myfile.txt" ]]; then
     pass "Mixed arguments (flag + option + positional)"
 else
@@ -246,7 +246,7 @@ section "6. Help Flag Detection"
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"name":"myapp","description":"My awesome app","version":"1.0.0","args":[
     {"name":"verbose","short":"v","type":"flag","help":"Enable verbose output"}
-]}' -- --help)
+]}' --script "$0" -- --help)
 # Run source in subshell to capture output without exiting main script
 HELP_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$HELP_OUTPUT" | grep -q "myapp"; then
