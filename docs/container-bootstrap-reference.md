@@ -73,6 +73,39 @@ If you need to change the working directory inside the container, you can pass a
 
 When `container.args` includes `--workdir`, it shadows the automatic CWD mount, and the container runs in the specified directory instead.
 
+## User Identity Mapping
+
+When bootstrapping into a container, shclap automatically maps the host user identity into the container. By default, this is enabled via the `host_user` field (defaults to `true`), which:
+
+1. Captures the host process's UID and GID at parse time (`_shclap_uid` and `_shclap_gid`)
+2. Emits `-u "$_shclap_uid:$_shclap_gid"` to run the container process as the host user
+3. Bind-mounts `/etc/passwd` and `/etc/group` read-only into the container so it can resolve user/group names
+
+This ensures that files created inside the container are owned by the host user, avoiding permission issues when accessing container-created files from the host.
+
+**Opt-out: Running as the image's built-in user**
+
+If you need to run the container process as the image's user (typically `root`), set `"host_user": false`:
+
+```json
+{
+  "schema_version": 2,
+  "name": "myscript",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:22.04",
+    "host_user": false
+  },
+  "args": [...]
+}
+```
+
+**Caveats**
+
+- **Root on the host:** If the host user is `root` (UID 0), the container process also runs as `root`, matching normal `docker run` behavior.
+- **macOS:** macOS Docker Desktop runs the Docker daemon inside a lightweight VM. Host UIDs visible to the daemon may differ from your actual macOS user ID. If you encounter permission issues, consider setting `host_user: false` or using Docker's user-namespace remapping.
+- **Image shadow:** Some container images have special user handling (e.g., they drop privileges to an unprivileged user on startup). The `host_user` setting specifies the initial container process UID; such images may ignore it and run as their configured default user.
+
 ### Examples
 
 **Example 1: Script with container bootstrap config, called locally**
@@ -105,11 +138,10 @@ source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
 When a **non-silent signal** is detected (i.e., any of the three runtime signals), shclap emits a single diagnostic message to stderr:
 
 ```
-shclap: already inside container (via <signal>) — skipping bootstrap
+shclap: container detected via <signal>, skipping reexec
 ```
 
 The `<signal>` placeholder is replaced with one of:
-- `SHCLAP_IN_CONTAINER` (if this signal was detected; although this is internal and typically produces no output)
 - `/.dockerenv` (if the Docker marker file was detected)
 - `/run/.containerenv` (if the generic container marker file was detected)
 - `$container` (if the container environment variable was detected)
@@ -118,7 +150,7 @@ The `<signal>` placeholder is replaced with one of:
 
 ```bash
 $ docker run -it --rm myimage ./script.sh --help
-shclap: already inside container (via /.dockerenv) — skipping bootstrap
+shclap: container detected via /.dockerenv, skipping reexec
 Help text for script...
 ```
 
