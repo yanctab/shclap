@@ -334,6 +334,7 @@ pub fn generate_container_reexec_string(
         },
         || std::env::current_exe().map_err(|e| anyhow::anyhow!(e)),
         || Ok(script.to_path_buf()),
+        HostIdentity::current(),
         container,
         config,
     )
@@ -344,10 +345,11 @@ pub fn generate_container_reexec_string(
 ///
 /// All three paths are resolved at parse time and emitted as literals.
 /// Returns an error if any path cannot be resolved.
-fn generate_container_reexec_string_with<CwdFn, ExeFn, ScriptFn>(
+pub(crate) fn generate_container_reexec_string_with<CwdFn, ExeFn, ScriptFn>(
     cwd_fn: CwdFn,
     exe_fn: ExeFn,
     script_fn: ScriptFn,
+    identity: HostIdentity,
     container: &ContainerConfig,
     config: &Config,
 ) -> Result<String>
@@ -384,11 +386,20 @@ where
         "_shclap_cwd={}\n",
         shell_quote(&cwd_path.to_string_lossy())
     ));
+    s.push_str(&format!("_shclap_uid={}\n", identity.uid));
+    s.push_str(&format!("_shclap_gid={}\n", identity.gid));
     s.push_str("set -x\n");
     s.push_str(&format!("exec {rt} run --rm \\\n"));
 
     // Emit --pull flag — enum Display yields the verbatim runtime value
     s.push_str(&format!("  --pull={} \\\n", container.pull_policy));
+
+    // Emit host user identity flags when enabled
+    if container.host_user {
+        s.push_str("  -u \"$_shclap_uid:$_shclap_gid\" \\\n");
+        s.push_str("  -v /etc/passwd:/etc/passwd:ro \\\n");
+        s.push_str("  -v /etc/group:/etc/group:ro \\\n");
+    }
 
     s.push_str("  -v \"$_shclap_script:$_shclap_script:ro\" \\\n");
     s.push_str("  -v \"$_shclap_bin:/usr/local/bin/shclap:ro\" \\\n");
@@ -1486,9 +1497,18 @@ mod tests {
         let exe_fn = || -> Result<PathBuf> { Ok(PathBuf::from("/usr/local/bin/shclap")) };
         let script_fn = || -> Result<PathBuf> { Ok(PathBuf::from("/home/user/project/script.sh")) };
 
-        let output =
-            generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config)
-                .expect("should succeed");
+        let output = generate_container_reexec_string_with(
+            cwd_fn,
+            exe_fn,
+            script_fn,
+            HostIdentity {
+                uid: 1000,
+                gid: 1000,
+            },
+            &container,
+            &config,
+        )
+        .expect("should succeed");
 
         // All paths emitted as literals
         assert!(output.contains("_shclap_script=/home/user/project/script.sh"));
@@ -1515,9 +1535,18 @@ mod tests {
         let script_fn =
             || -> Result<PathBuf> { Ok(PathBuf::from("/home/user/my project/script.sh")) };
 
-        let output =
-            generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config)
-                .expect("should succeed");
+        let output = generate_container_reexec_string_with(
+            cwd_fn,
+            exe_fn,
+            script_fn,
+            HostIdentity {
+                uid: 1000,
+                gid: 1000,
+            },
+            &container,
+            &config,
+        )
+        .expect("should succeed");
 
         // All literal; paths with spaces must be quoted
         assert!(output.contains("_shclap_script='/home/user/my project/script.sh'"));
@@ -1543,9 +1572,18 @@ mod tests {
         let exe_fn = || -> Result<PathBuf> { Ok(PathBuf::from("/usr/bin/shclap;id")) };
         let script_fn = || -> Result<PathBuf> { Ok(PathBuf::from("/home/user/$HOME/script.sh")) };
 
-        let output =
-            generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config)
-                .expect("should succeed");
+        let output = generate_container_reexec_string_with(
+            cwd_fn,
+            exe_fn,
+            script_fn,
+            HostIdentity {
+                uid: 1000,
+                gid: 1000,
+            },
+            &container,
+            &config,
+        )
+        .expect("should succeed");
 
         // All literal; paths with special characters must be single-quoted
         assert!(output.contains("_shclap_script='"));
@@ -1579,8 +1617,17 @@ mod tests {
         let exe_fn = || -> Result<PathBuf> { Ok(PathBuf::from("/usr/local/bin/shclap")) };
         let script_fn = || -> Result<PathBuf> { Ok(PathBuf::from("/home/user/script.sh")) };
 
-        let result =
-            generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config);
+        let result = generate_container_reexec_string_with(
+            cwd_fn,
+            exe_fn,
+            script_fn,
+            HostIdentity {
+                uid: 1000,
+                gid: 1000,
+            },
+            &container,
+            &config,
+        );
 
         assert!(result.is_err());
     }
@@ -1603,8 +1650,17 @@ mod tests {
         let exe_fn = || -> Result<PathBuf> { Err(anyhow::anyhow!("cannot determine exe path")) };
         let script_fn = || -> Result<PathBuf> { Ok(PathBuf::from("/home/user/script.sh")) };
 
-        let result =
-            generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config);
+        let result = generate_container_reexec_string_with(
+            cwd_fn,
+            exe_fn,
+            script_fn,
+            HostIdentity {
+                uid: 1000,
+                gid: 1000,
+            },
+            &container,
+            &config,
+        );
 
         assert!(result.is_err());
     }
@@ -1627,8 +1683,17 @@ mod tests {
         let script_fn =
             || -> Result<PathBuf> { Err(anyhow::anyhow!("cannot determine script path")) };
 
-        let result =
-            generate_container_reexec_string_with(cwd_fn, exe_fn, script_fn, &container, &config);
+        let result = generate_container_reexec_string_with(
+            cwd_fn,
+            exe_fn,
+            script_fn,
+            HostIdentity {
+                uid: 1000,
+                gid: 1000,
+            },
+            &container,
+            &config,
+        );
 
         assert!(result.is_err());
     }
@@ -1644,5 +1709,173 @@ mod tests {
         let actual_gid = uzers::get_current_gid();
         assert_eq!(identity.uid, actual_uid);
         assert_eq!(identity.gid, actual_gid);
+    }
+
+    // --- New tests for host user flags emission (issue #117) ---
+
+    #[test]
+    fn test_container_reexec_emits_host_user_flags_by_default() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+        let identity = HostIdentity {
+            uid: 1000,
+            gid: 1000,
+        };
+
+        let output = generate_container_reexec_string_with(
+            || Ok(std::path::PathBuf::from("/home/user")),
+            || Ok(std::path::PathBuf::from("/usr/bin/shclap")),
+            || Ok(std::path::PathBuf::from("/test/script.sh")),
+            identity,
+            &container,
+            &config,
+        )
+        .unwrap();
+
+        // When host_user is not specified (defaults to true), flags should be emitted
+        assert!(output.contains("_shclap_uid=1000"));
+        assert!(output.contains("_shclap_gid=1000"));
+        assert!(output.contains("-u \"$_shclap_uid:$_shclap_gid\" \\"));
+        assert!(output.contains("-v /etc/passwd:/etc/passwd:ro \\"));
+        assert!(output.contains("-v /etc/group:/etc/group:ro \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_emits_uid_gid_shell_assignments() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "alpine:latest".to_string(),
+            host_user: true,
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+        let identity = HostIdentity { uid: 0, gid: 0 };
+
+        let output = generate_container_reexec_string_with(
+            || Ok(std::path::PathBuf::from("/")),
+            || Ok(std::path::PathBuf::from("/bin/shclap")),
+            || Ok(std::path::PathBuf::from("/root/script.sh")),
+            identity,
+            &container,
+            &config,
+        )
+        .unwrap();
+
+        // Verify uid and gid appear in shell assignments
+        assert!(output.contains("_shclap_uid=0"));
+        assert!(output.contains("_shclap_gid=0"));
+        // Verify the order: uid/gid come after cwd assignment but before set -x
+        let cwd_pos = output.find("_shclap_cwd=").unwrap();
+        let uid_pos = output.find("_shclap_uid=").unwrap();
+        let gid_pos = output.find("_shclap_gid=").unwrap();
+        let set_x_pos = output.find("set -x").unwrap();
+        assert!(cwd_pos < uid_pos && uid_pos < gid_pos && gid_pos < set_x_pos);
+    }
+
+    #[test]
+    fn test_container_reexec_omits_host_user_flags_when_disabled() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            host_user: false,
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+        let identity = HostIdentity {
+            uid: 1000,
+            gid: 1000,
+        };
+
+        let output = generate_container_reexec_string_with(
+            || Ok(std::path::PathBuf::from("/home/user")),
+            || Ok(std::path::PathBuf::from("/usr/bin/shclap")),
+            || Ok(std::path::PathBuf::from("/test/script.sh")),
+            identity,
+            &container,
+            &config,
+        )
+        .unwrap();
+
+        // When host_user is false, no user identity flags should appear
+        assert!(!output.contains("-u \"$_shclap_uid:$_shclap_gid\""));
+        assert!(!output.contains("-v /etc/passwd:/etc/passwd:ro"));
+        assert!(!output.contains("-v /etc/group:/etc/group:ro"));
+        // But the shell variables should still be emitted (for potential use by the user)
+        assert!(output.contains("_shclap_uid=1000"));
+        assert!(output.contains("_shclap_gid=1000"));
+    }
+
+    #[test]
+    fn test_container_reexec_emits_root_when_uid_zero() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "podman".to_string(),
+            image: "fedora:39".to_string(),
+            host_user: true,
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+        let identity = HostIdentity { uid: 0, gid: 0 };
+
+        let output = generate_container_reexec_string_with(
+            || Ok(std::path::PathBuf::from("/root")),
+            || Ok(std::path::PathBuf::from("/usr/bin/shclap")),
+            || Ok(std::path::PathBuf::from("/root/script.sh")),
+            identity,
+            &container,
+            &config,
+        )
+        .unwrap();
+
+        // Root (uid=0) should still be emitted, no special-casing
+        assert!(output.contains("_shclap_uid=0"));
+        assert!(output.contains("_shclap_gid=0"));
+        assert!(output.contains("-u \"$_shclap_uid:$_shclap_gid\" \\"));
+    }
+
+    #[test]
+    fn test_container_reexec_container_args_can_override_user() {
+        use crate::config::{Config, ContainerConfig};
+
+        let container = ContainerConfig {
+            runtime: "docker".to_string(),
+            image: "ubuntu:22.04".to_string(),
+            args: vec!["--user".to_string(), "9999:9999".to_string()],
+            host_user: true,
+            ..Default::default()
+        };
+        let config = Config::from_json(r#"{"schema_version": 2, "name": "test"}"#).unwrap();
+        let identity = HostIdentity {
+            uid: 1000,
+            gid: 1000,
+        };
+
+        let output = generate_container_reexec_string_with(
+            || Ok(std::path::PathBuf::from("/home/user")),
+            || Ok(std::path::PathBuf::from("/usr/bin/shclap")),
+            || Ok(std::path::PathBuf::from("/test/script.sh")),
+            identity,
+            &container,
+            &config,
+        )
+        .unwrap();
+
+        // Shclap-emitted -u should appear before container.args
+        let shclap_u_pos = output.find("-u \"$_shclap_uid:$_shclap_gid\" \\").unwrap();
+        let container_user_pos = output.find("--user").unwrap();
+        assert!(shclap_u_pos < container_user_pos);
+        // Docker/podman's last-wins behavior means the container.args user will take precedence
+        // but shclap's job is just to emit them in the right order
     }
 }
