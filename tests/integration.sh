@@ -1522,6 +1522,42 @@ else
     fail "Container CWD symlink resolution" "physical path ${PHYSICAL_PATH}" "$(echo "$OUTPUT_CONTENTS" | grep '_shclap_cwd=' || echo 'not found')"
 fi
 
+section "24. Container Host User Identity"
+
+# AC7: Host user flags appear when host_user is absent (defaults to true)
+run_test
+if ! command -v docker &> /dev/null; then
+    pass "host_user flags with default (skipped - docker not available)"
+else
+    CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[]}}'
+    OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- 2>/dev/null)
+    OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+    rm -f "$OUTPUT_FILE"
+    CURRENT_UID=$(id -u)
+    CURRENT_GID=$(id -g)
+    if echo "$OUTPUT_CONTENTS" | grep -q "_shclap_uid=" && echo "$OUTPUT_CONTENTS" | grep -q "_shclap_gid=" && echo "$OUTPUT_CONTENTS" | grep -q "\-u \"\$_shclap_uid:\$_shclap_gid\""; then
+        pass "host_user flags appear when host_user is absent (defaults to true)"
+    else
+        fail "host_user flags with default" "should have _shclap_uid, _shclap_gid, and -u flag" "$(echo "$OUTPUT_CONTENTS" | grep -E '_shclap_uid=|_shclap_gid=|-u' || echo 'not found')"
+    fi
+fi
+
+# AC7: Host user flags do not appear when host_user is false
+run_test
+if ! command -v docker &> /dev/null; then
+    pass "host_user flags when disabled (skipped - docker not available)"
+else
+    CONTAINER_CONFIG='{"schema_version":2,"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}],"container":{"runtime":"docker","image":"alpine:3","args":[],"host_user":false}}'
+    OUTPUT_FILE=$("$SHCLAP" parse --config "$CONTAINER_CONFIG" --script "$0" -- 2>/dev/null)
+    OUTPUT_CONTENTS=$(cat "$OUTPUT_FILE")
+    rm -f "$OUTPUT_FILE"
+    if ! echo "$OUTPUT_CONTENTS" | grep -q "\-u \"\$_shclap_uid:\$_shclap_gid\"" && ! echo "$OUTPUT_CONTENTS" | grep -q "\-v /etc/passwd:/etc/passwd:ro" && ! echo "$OUTPUT_CONTENTS" | grep -q "\-v /etc/group:/etc/group:ro"; then
+        pass "host_user flags do not appear when host_user: false"
+    else
+        fail "host_user flags when disabled" "should NOT have -u or /etc/passwd mounts" "$(echo "$OUTPUT_CONTENTS" | grep -E '-u.*_shclap_uid|-v /etc/passwd|-v /etc/group' || echo 'not found')"
+    fi
+fi
+
 #
 # Summary
 #
