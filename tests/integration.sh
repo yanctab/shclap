@@ -113,7 +113,7 @@ source "$("$SHCLAP" parse --config '{"name":"test","args":[
     {"name":"a","short":"a","type":"flag"},
     {"name":"b","short":"b","type":"flag"},
     {"name":"c","short":"c","type":"flag"}
-]}' -- -abc)"
+]}' --script "$0" -- -abc)"
 if [[ "${SHCLAP_A:-}" == "true" && "${SHCLAP_B:-}" == "true" && "${SHCLAP_C:-}" == "true" ]]; then
     pass "Combined short flags (-abc) sets all flags to true"
 else
