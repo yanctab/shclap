@@ -321,6 +321,32 @@ The `pull_policy` sub-field of `container` controls when the image is fetched fr
 
 The value is passed to the runtime as `--pull=<value>` without translation; both Docker (≥ 20.10) and Podman accept all three values.
 
+#### Host User Identity Mapping
+
+The `host_user` sub-field of `container` (boolean, default `true`) controls whether the container process runs as the host user or as the image's built-in user.
+
+| Value | Behaviour |
+|-------|-----------|
+| `true` (default) | The container process runs as the host user (UID/GID from the host). The container re-exec emits `-u $UID:$GID` and mounts `/etc/passwd` and `/etc/group` read-only so the container can resolve user/group names. |
+| `false` | The container process runs as the image's built-in user (typically `root`). No user identity flags are emitted. |
+
+**Example: Run as built-in user**
+
+```json
+{
+  "schema_version": 2,
+  "name": "myscript",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:22.04",
+    "host_user": false
+  },
+  "args": [...]
+}
+```
+
+When `host_user: false`, the container process will run as the image's user, typically `root`. This is useful when the script requires elevated privileges or when you want to isolate the container user identity from the host.
+
 #### Container Detection Signals
 
 shclap checks four signals in priority order to determine whether re-execution should be skipped:
@@ -348,11 +374,16 @@ When no detection signal is found, shclap emits a shell fragment with this shape
 _shclap_script=/home/user/myscript.sh
 _shclap_bin=/usr/local/bin/shclap
 _shclap_cwd=/home/user/project
+_shclap_uid=1000
+_shclap_gid=1000
 command -v docker >/dev/null 2>&1 || { echo "shclap: container runtime 'docker' not found" >&2; exit 127; }
 echo "shclap: bootstrapping into docker:ubuntu:22.04" >&2
 set -x
 exec docker run --rm \
   --pull=missing \
+  -u "$_shclap_uid:$_shclap_gid" \
+  -v /etc/passwd:/etc/passwd:ro \
+  -v /etc/group:/etc/group:ro \
   -v "$_shclap_script:$_shclap_script:ro" \
   -v "$_shclap_bin:/usr/local/bin/shclap:ro" \
   -v "$_shclap_cwd:$_shclap_cwd" \
@@ -366,8 +397,9 @@ exec docker run --rm \
 
 Key guarantees:
 
-- The three variables `_shclap_script`, `_shclap_bin`, and `_shclap_cwd` are emitted as shell-quoted literal values, resolved at parse time by shclap (not dynamically by the shell). All symlinks are resolved to their physical paths.
+- The four variables `_shclap_script`, `_shclap_bin`, `_shclap_cwd`, `_shclap_uid`, and `_shclap_gid` are emitted as shell-quoted literal values, resolved at parse time by shclap (not dynamically by the shell). All symlinks are resolved to their physical paths. UID and GID values are numeric literals.
 - `--pull=<policy>` appears immediately after `--rm`; the value matches `pull_policy` verbatim.
+- **User identity flags** (when `host_user: true`, the default): `-u "$_shclap_uid:$_shclap_gid"` runs the container process as the host user. Two read-only bind-mounts of `/etc/passwd` and `/etc/group` are emitted immediately after the `-u` flag so the container can resolve user/group names. When `host_user: false`, these three lines are omitted and the container runs as the image's built-in user.
 - If the runtime binary is not on `PATH`, the sourced file exits with code **127**.
 - All environment variables whose names start with the configured prefix are forwarded.
 - `container.args` values are emitted as individual shell words; metacharacter-containing values are single-quoted.
