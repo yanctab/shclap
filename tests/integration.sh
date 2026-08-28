@@ -99,7 +99,7 @@ fi
 # Test: Flag defaults to false
 run_test
 unset SHCLAP_DEBUG 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"debug","short":"d","type":"flag"}]}' --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"debug","short":"d","type":"flag"}]}' --script "$0" --script "$0" -- )"
 if [[ "${SHCLAP_DEBUG:-}" == "false" ]]; then
     pass "Unset flag defaults to SHCLAP_DEBUG=false"
 else
@@ -166,7 +166,7 @@ fi
 # Test: Option with default value
 run_test
 unset SHCLAP_OUTPUT 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","long":"output","type":"option","default":"default.txt"}]}' --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"output","long":"output","type":"option","default":"default.txt"}]}' --script "$0" --script "$0" -- )"
 if [[ "${SHCLAP_OUTPUT:-}" == "default.txt" ]]; then
     pass "Option default value (--output defaults to default.txt)"
 else
@@ -323,7 +323,7 @@ fi
 
 # Test: Missing required argument
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"input","type":"positional","required":true}]}' --script "$0" -- )
+OUTPUT=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"input","type":"positional","required":true}]}' --script "$0" --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "missing required"; then
     pass "Missing required argument produces error"
@@ -333,7 +333,7 @@ fi
 
 # Test: Unsupported schema version
 run_test
-OUTPUT=$("$SHCLAP" parse --config '{"schema_version":99,"name":"test"}' --script "$0" -- )
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":99,"name":"test"}' --script "$0" --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "unsupported schema version"; then
     pass "Unsupported schema version produces error"
@@ -389,7 +389,7 @@ unset SHCLAP_INPUT 2>/dev/null || true
 export TEST_INPUT_VAR="from_environment"
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"input","long":"input","type":"option","env":"TEST_INPUT_VAR"}
-]}' --script "$0" -- )"
+]}' --script "$0" --script "$0" -- )"
 if [[ "${SHCLAP_INPUT:-}" == "from_environment" ]]; then
     pass "Env var fallback (TEST_INPUT_VAR) sets SHCLAP_INPUT"
 else
@@ -417,7 +417,7 @@ unset SHCLAP_CONFIG 2>/dev/null || true
 export SHCLAP_CONFIG="auto_env_value"
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"config","long":"config","type":"option"}
-]}' --script "$0" -- )"
+]}' --script "$0" --script "$0" -- )"
 if [[ "${SHCLAP_CONFIG:-}" == "auto_env_value" ]]; then
     pass "Auto-env reads from PREFIX + ARG_NAME (SHCLAP_CONFIG)"
 else
@@ -431,7 +431,7 @@ unset MYAPP_DEBUG 2>/dev/null || true
 export MYAPP_DEBUG="true"
 source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","prefix":"MYAPP_","args":[
     {"name":"debug","long":"debug","type":"option"}
-]}' --script "$0" -- )"
+]}' --script "$0" --script "$0" -- )"
 if [[ "${MYAPP_DEBUG:-}" == "true" ]]; then
     pass "Auto-env with custom prefix reads from MYAPP_DEBUG"
 else
@@ -459,7 +459,7 @@ unset SHCLAP_SECRET 2>/dev/null || true
 export SHCLAP_SECRET="should_not_be_read"
 OUTPUT_FILE=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[
     {"name":"secret","long":"secret","type":"option","env":false}
-]}' --script "$0" -- )
+]}' --script "$0" --script "$0" -- )
 # The output file should NOT contain SHCLAP_SECRET since env is disabled
 if ! grep -q "SHCLAP_SECRET" "$OUTPUT_FILE"; then
     pass "Opt-out (env: false) does not read from env"
@@ -474,7 +474,7 @@ unset SHCLAP_LEGACY 2>/dev/null || true
 export SHCLAP_LEGACY="should_not_be_read"
 OUTPUT_FILE=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
     {"name":"legacy","long":"legacy","type":"option"}
-]}' --script "$0" -- )
+]}' --script "$0" --script "$0" -- )
 # The output file should NOT contain SHCLAP_LEGACY since v1 has no auto-env
 if ! grep -q "SHCLAP_LEGACY" "$OUTPUT_FILE"; then
     pass "v1 schema does not enable auto-env"
@@ -603,7 +603,7 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","subcommands":[
     {"name":"init"}
-]}' --script "$0" -- )
+]}' --script "$0" --script "$0" -- )
 HELP_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$HELP_OUTPUT" | grep -qi "usage\|init"; then
     pass "Missing subcommand shows help/usage"
@@ -618,7 +618,7 @@ section "14. Schema Version 2 - Validation Errors"
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
     {"name":"input","long":"input","type":"option","env":"MY_VAR"}
-]}' --script "$0" -- )
+]}' --script "$0" --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "requires schema_version"; then
     pass "Field 'env' rejected in schema v1"
@@ -630,7 +630,7 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","args":[
     {"name":"files","long":"file","type":"option","multiple":true}
-]}' --script "$0" -- )
+]}' --script "$0" --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "requires schema_version"; then
     pass "Field 'multiple' rejected in schema v1"
@@ -642,7 +642,7 @@ fi
 run_test
 OUTPUT=$("$SHCLAP" parse --config '{"schema_version":1,"name":"test","subcommands":[
     {"name":"init"}
-]}' --script "$0" -- )
+]}' --script "$0" --script "$0" -- )
 ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
 if echo "$ERROR_OUTPUT" | grep -q "require.*schema_version"; then
     pass "Subcommands rejected in schema v1"
@@ -1372,7 +1372,7 @@ export PATH="$(dirname "$SHCLAP"):$PATH"
 # AC1: After source $(shclap parse ...), declare -F log_info exits 0
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
 if declare -F log_info >/dev/null 2>&1; then
     pass "log_info helper function is defined after parse"
 else
@@ -1382,7 +1382,7 @@ fi
 # Test: all five log helper functions are defined
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
 declare -F log_error >/dev/null 2>&1 && \
 declare -F log_warn >/dev/null 2>&1 && \
 declare -F log_info >/dev/null 2>&1 && \
@@ -1397,7 +1397,7 @@ fi
 # AC2: SHCLAP_LOG=info log_info "msg" writes INFO: msg to stderr
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
 OUTPUT=$(SHCLAP_LOG=info log_info "test message" 2>&1 1>/dev/null)
 if echo "$OUTPUT" | grep -q "INFO: test message"; then
     pass "log_info with SHCLAP_LOG=info outputs INFO: msg"
@@ -1408,7 +1408,7 @@ fi
 # AC3: SHCLAP_LOG=error log_info "msg" produces no output
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
 OUTPUT=$(SHCLAP_LOG=error log_info "test message" 2>&1 1>/dev/null) || true
 if [[ -z "$OUTPUT" ]]; then
     pass "log_info with SHCLAP_LOG=error produces no output"
@@ -1419,7 +1419,7 @@ fi
 # AC4: SHCLAP_LOG=off silences all five helpers
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
 OUTPUT=$(SHCLAP_LOG=off log_error "err" 2>&1 1>/dev/null) || true
 OUTPUT2=$(SHCLAP_LOG=off log_warn "warn" 2>&1 1>/dev/null) || true
 OUTPUT3=$(SHCLAP_LOG=off log_info "info" 2>&1 1>/dev/null) || true
@@ -1434,7 +1434,7 @@ fi
 # AC5: User-defined log_info declared after sourcing shadows the emitted definition
 run_test
 unset SHCLAP_VERBOSE 2>/dev/null || true
-source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" -- )"
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"verbose","short":"v","type":"flag"}]}' --script "$0" --script "$0" -- )"
 log_info() { echo "CUSTOM_LOG"; }
 OUTPUT=$(log_info "test" 2>&1 1>&2)
 if echo "$OUTPUT" | grep -q "CUSTOM_LOG"; then
