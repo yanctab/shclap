@@ -1043,8 +1043,7 @@ mod tests {
         // Create source files for two bundles
         fs::write(temp_path.join("binaries.txt"), "binary content")
             .expect("Failed to write binaries file");
-        fs::write(temp_path.join("logs.txt"), "log content")
-            .expect("Failed to write logs file");
+        fs::write(temp_path.join("logs.txt"), "log content").expect("Failed to write logs file");
 
         let config = CollectConfig {
             schema_version: 1,
@@ -1079,7 +1078,10 @@ mod tests {
             &["binaries".to_string()],
         );
 
-        assert!(result.is_ok(), "run() should succeed when requesting a valid bundle");
+        assert!(
+            result.is_ok(),
+            "run() should succeed when requesting a valid bundle"
+        );
 
         // Verify only binaries.txt was copied, not logs.txt
         let files: Vec<_> = fs::read_dir(out_dir.path())
@@ -1090,7 +1092,10 @@ mod tests {
             .collect();
 
         assert_eq!(files.len(), 1, "Should have copied only 1 file");
-        assert!(files.contains(&"binaries.txt".to_string()), "Should have copied binaries.txt");
+        assert!(
+            files.contains(&"binaries.txt".to_string()),
+            "Should have copied binaries.txt"
+        );
         assert!(
             !files.contains(&"logs.txt".to_string()),
             "Should not have copied logs.txt"
@@ -1109,8 +1114,7 @@ mod tests {
         // Create source files for three bundles
         fs::write(temp_path.join("binaries.txt"), "binary content")
             .expect("Failed to write binaries file");
-        fs::write(temp_path.join("logs.txt"), "log content")
-            .expect("Failed to write logs file");
+        fs::write(temp_path.join("logs.txt"), "log content").expect("Failed to write logs file");
         fs::write(temp_path.join("config.txt"), "config content")
             .expect("Failed to write config file");
 
@@ -1155,7 +1159,10 @@ mod tests {
             &["binaries".to_string(), "logs".to_string()],
         );
 
-        assert!(result.is_ok(), "run() should succeed when requesting valid bundles");
+        assert!(
+            result.is_ok(),
+            "run() should succeed when requesting valid bundles"
+        );
 
         // Verify both requested files were copied, but not config.txt
         let files: Vec<_> = fs::read_dir(out_dir.path())
@@ -1166,8 +1173,14 @@ mod tests {
             .collect();
 
         assert_eq!(files.len(), 2, "Should have copied exactly 2 files");
-        assert!(files.contains(&"binaries.txt".to_string()), "Should have copied binaries.txt");
-        assert!(files.contains(&"logs.txt".to_string()), "Should have copied logs.txt");
+        assert!(
+            files.contains(&"binaries.txt".to_string()),
+            "Should have copied binaries.txt"
+        );
+        assert!(
+            files.contains(&"logs.txt".to_string()),
+            "Should have copied logs.txt"
+        );
         assert!(
             !files.contains(&"config.txt".to_string()),
             "Should not have copied config.txt"
@@ -1186,8 +1199,7 @@ mod tests {
         // Create source files for two bundles
         fs::write(temp_path.join("binaries.txt"), "binary content")
             .expect("Failed to write binaries file");
-        fs::write(temp_path.join("logs.txt"), "log content")
-            .expect("Failed to write logs file");
+        fs::write(temp_path.join("logs.txt"), "log content").expect("Failed to write logs file");
 
         let config = CollectConfig {
             schema_version: 1,
@@ -1222,7 +1234,10 @@ mod tests {
             &[],
         );
 
-        assert!(result.is_ok(), "run() should succeed when no bundle selector provided");
+        assert!(
+            result.is_ok(),
+            "run() should succeed when no bundle selector provided"
+        );
 
         // Verify all files were copied
         let files: Vec<_> = fs::read_dir(out_dir.path())
@@ -1233,8 +1248,14 @@ mod tests {
             .collect();
 
         assert_eq!(files.len(), 2, "Should have copied all 2 files");
-        assert!(files.contains(&"binaries.txt".to_string()), "Should have copied binaries.txt");
-        assert!(files.contains(&"logs.txt".to_string()), "Should have copied logs.txt");
+        assert!(
+            files.contains(&"binaries.txt".to_string()),
+            "Should have copied binaries.txt"
+        );
+        assert!(
+            files.contains(&"logs.txt".to_string()),
+            "Should have copied logs.txt"
+        );
     }
 
     #[test]
@@ -1275,7 +1296,10 @@ mod tests {
             &["unknown_bundle".to_string()],
         );
 
-        assert!(result.is_err(), "run() should fail when requesting unknown bundle");
+        assert!(
+            result.is_err(),
+            "run() should fail when requesting unknown bundle"
+        );
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("unknown bundle name"),
@@ -1301,8 +1325,7 @@ mod tests {
         // Create source files for two bundles
         fs::write(temp_path.join("binaries.txt"), "binary content")
             .expect("Failed to write binaries file");
-        fs::write(temp_path.join("logs.txt"), "log content")
-            .expect("Failed to write logs file");
+        fs::write(temp_path.join("logs.txt"), "log content").expect("Failed to write logs file");
 
         let config = CollectConfig {
             schema_version: 1,
@@ -1375,10 +1398,7 @@ pub fn run(
     if !bundles.is_empty() {
         for bundle_name in bundles {
             if !config.bundles.contains_key(bundle_name) {
-                return Err(anyhow::anyhow!(
-                    "unknown bundle name: {}",
-                    bundle_name
-                ));
+                return Err(anyhow::anyhow!("unknown bundle name: {}", bundle_name));
             }
         }
     }
