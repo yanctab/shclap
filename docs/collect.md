@@ -186,6 +186,11 @@ When collecting to an archive, use `--out=-` to write the archive to stdout inst
 
 The `--archive-format` flag **must** be specified when using `--out=-` (format cannot be auto-detected from a filename).
 
+With `--out=-`, stdout carries the archive bytes and nothing else — the
+destination is reported on stderr instead, so the stream stays byte-exact and
+can be piped straight into `gzip`, `tar`, or `ssh`. For every other `--out`
+value, stdout is the output path as usual.
+
 Example:
 
 ```bash

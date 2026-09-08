@@ -132,39 +132,15 @@ fn main() -> Result<()> {
             container_marker_root,
             args,
         } => {
-            // Handle config parsing errors
-            let mut cfg = match Config::from_json(&config) {
-                Ok(c) => c,
-                Err(e) => {
-                    return output_error(&format!("failed to parse JSON config: {}", e));
-                }
-            };
-
-            // Handle expansion errors
-            if let Err(e) = cfg.expand_vars(|name| std::env::var(name).ok()) {
-                return output_error(&format!("environment variable expansion failed: {}", e));
-            }
-
-            // Handle validation errors
-            if let Err(e) = cfg.validate() {
-                return output_error(&e.to_string());
-            }
-
-            // Determine effective name: CLI --name takes priority over config name
-            let effective_name = match (name.as_deref(), cfg.name.as_deref()) {
-                (Some(cli_name), _) => cli_name,
-                (None, Some(config_name)) => config_name,
-                (None, None) => {
-                    return output_error(
-                        "no application name provided: use --name or set 'name' in config",
-                    );
-                }
+            let (cfg, effective_name) = match load_config(&config, name.as_deref()) {
+                Ok(loaded) => loaded,
+                Err(e) => return output_error(&e),
             };
 
             let effective_prefix = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
 
             // Parse args first so that --help / --version outcomes bypass container dispatch.
-            let parse_outcome = parse_args(&cfg, &args, effective_name);
+            let parse_outcome = parse_args(&cfg, &args, &effective_name);
 
             // Container dispatch: only reexec on a real Success outcome when we are NOT already
             // inside a container.  Help, Version, and Error outcomes pass through unchanged.
@@ -232,40 +208,14 @@ fn main() -> Result<()> {
             }
         }
         Commands::Help { config, name } => {
-            let mut cfg = Config::from_json(&config).context("failed to parse config JSON")?;
-
-            cfg.expand_vars(|name| std::env::var(name).ok())
-                .context("environment variable expansion failed")?;
-
-            // Determine effective name: CLI --name takes priority over config name
-            let effective_name = match (name.as_deref(), cfg.name.as_deref()) {
-                (Some(cli_name), _) => cli_name.to_string(),
-                (None, Some(config_name)) => config_name.to_string(),
-                (None, None) => {
-                    anyhow::bail!(
-                        "no application name provided: use --name or set 'name' in config"
-                    );
-                }
-            };
+            let (cfg, effective_name) =
+                load_config(&config, name.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
 
             print!("{}", generate_help(&cfg, &effective_name));
         }
         Commands::Version { config, name } => {
-            let mut cfg = Config::from_json(&config).context("failed to parse config JSON")?;
-
-            cfg.expand_vars(|name| std::env::var(name).ok())
-                .context("environment variable expansion failed")?;
-
-            // Determine effective name: CLI --name takes priority over config name
-            let effective_name = match (name.as_deref(), cfg.name.as_deref()) {
-                (Some(cli_name), _) => cli_name.to_string(),
-                (None, Some(config_name)) => config_name.to_string(),
-                (None, None) => {
-                    anyhow::bail!(
-                        "no application name provided: use --name or set 'name' in config"
-                    );
-                }
-            };
+            let (cfg, effective_name) =
+                load_config(&config, name.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
 
             print!("{}", generate_version(&cfg, &effective_name));
         }
@@ -274,21 +224,8 @@ fn main() -> Result<()> {
             name,
             prefix,
         } => {
-            let mut cfg = Config::from_json(&config).context("failed to parse config JSON")?;
-
-            cfg.expand_vars(|name| std::env::var(name).ok())
-                .context("environment variable expansion failed")?;
-
-            // Determine effective name: CLI --name takes priority over config name
-            let effective_name = match (name.as_deref(), cfg.name.as_deref()) {
-                (Some(cli_name), _) => cli_name.to_string(),
-                (None, Some(config_name)) => config_name.to_string(),
-                (None, None) => {
-                    anyhow::bail!(
-                        "no application name provided: use --name or set 'name' in config"
-                    );
-                }
-            };
+            let (cfg, effective_name) =
+                load_config(&config, name.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
 
             let effective_prefix = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
 
@@ -332,6 +269,39 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Parse, expand, and validate a config, then resolve the effective app name.
+///
+/// Every subcommand that takes `--config` goes through here, so validation can
+/// never be skipped for one of them. It used to be wired into `parse` only,
+/// which left `help`, `version`, and `print` building a Clap command from an
+/// unchecked config — a duplicate argument name tripped Clap's internal debug
+/// assertion and aborted the process instead of reporting the config error.
+///
+/// The error is a plain `String` because callers render it two different ways:
+/// `parse` writes it into a sourceable error file, the others bail through
+/// `anyhow`.
+fn load_config(config: &str, name: Option<&str>) -> Result<(Config, String), String> {
+    // ConfigError::ParseError already says "failed to parse JSON config", so no
+    // wrapper here — it used to produce that phrase twice in one message.
+    let mut cfg = Config::from_json(config).map_err(|e| e.to_string())?;
+
+    cfg.expand_vars(|name| std::env::var(name).ok())
+        .map_err(|e| format!("environment variable expansion failed: {}", e))?;
+
+    cfg.validate().map_err(|e| e.to_string())?;
+
+    // CLI --name takes priority over the config 'name' field.
+    let effective_name = match (name, cfg.name.as_deref()) {
+        (Some(cli_name), _) => cli_name.to_string(),
+        (None, Some(config_name)) => config_name.to_string(),
+        (None, None) => {
+            return Err("no application name provided: use --name or set 'name' in config".into())
+        }
+    };
+
+    Ok((cfg, effective_name))
 }
 
 /// Output an error file path and return Ok.
@@ -704,6 +674,72 @@ mod tests {
             }
             _ => panic!("Expected Parse command"),
         }
+    }
+
+    #[test]
+    fn test_load_config_validates() {
+        // Duplicate names used to reach Clap unchecked and abort the process
+        // via its internal debug assertion; now they surface as a config error.
+        let err = load_config(
+            r#"{"name":"t","args":[{"name":"a","type":"flag"},{"name":"a","type":"flag"}]}"#,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(err, "duplicate argument name: a");
+    }
+
+    #[test]
+    fn test_load_config_rejects_unsupported_schema_version() {
+        let err = load_config(r#"{"schema_version":99,"name":"t"}"#, None).unwrap_err();
+        assert!(
+            err.contains("unsupported schema version 99"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_load_config_reports_parse_failure_once() {
+        let err = load_config("not valid json", None).unwrap_err();
+        assert!(
+            err.starts_with("failed to parse JSON config: "),
+            "got: {}",
+            err
+        );
+        // The phrase used to appear twice: once from ConfigError, once from a wrapper.
+        assert_eq!(err.matches("failed to parse JSON config").count(), 1);
+    }
+
+    #[test]
+    fn test_load_config_requires_a_name() {
+        let err = load_config(r#"{}"#, None).unwrap_err();
+        assert!(err.contains("no application name provided"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_load_config_name_priority() {
+        let (_, name) = load_config(r#"{"name":"from_config"}"#, Some("from_cli")).unwrap();
+        assert_eq!(name, "from_cli");
+
+        let (_, name) = load_config(r#"{"name":"from_config"}"#, None).unwrap();
+        assert_eq!(name, "from_config");
+    }
+
+    #[test]
+    fn test_load_config_expands_variables() {
+        // Proves expand_vars is wired in without mutating the process
+        // environment, which would race the other tests in this binary.
+        let err = load_config(
+            r#"{"name":"t","version":"v${SHCLAP_NO_SUCH_VAR_FOR_TESTS}"}"#,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("environment variable expansion failed"),
+            "got: {}",
+            err
+        );
+        assert!(err.contains("SHCLAP_NO_SUCH_VAR_FOR_TESTS"), "got: {}", err);
     }
 
     #[test]

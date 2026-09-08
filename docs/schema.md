@@ -433,7 +433,7 @@ Access elements with:
 When using subcommands, an additional variable is set:
 
 ```bash
-SHCLAP_SUBCOMMAND="init"  # Name of the selected subcommand
+export SHCLAP_SUBCOMMAND='init'  # Name of the selected subcommand
 ```
 
 ## Migration from v1 to v2

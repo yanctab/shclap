@@ -403,15 +403,32 @@ $ ./myapp.sh --help --version
 shclap outputs shell commands that, when sourced, set environment variables:
 
 ```bash
+# The file removes itself first, so nothing is left in the temp directory
+rm -f -- /tmp/.tmpAbC123
+
 # For simple values
-export SHCLAP_VERBOSE="true"
-export SHCLAP_OUTPUT="file.txt"
+export SHCLAP_VERBOSE='true'
+export SHCLAP_OUTPUT='file.txt'
 
 # For arrays (multiple values)
-SHCLAP_FILES=("a.txt" "b.txt" "c.txt")
+export SHCLAP_FILES=('a.txt' 'b.txt' 'c.txt')
 
 # For subcommands
-export SHCLAP_SUBCOMMAND="build"
+export SHCLAP_SUBCOMMAND='build'
+```
+
+Values are single-quoted. Single quotes suppress every form of shell expansion,
+so a value reaches your script byte for byte as it was given on the command
+line — including spaces, newlines, tabs, and characters such as `$`, `` ` ``,
+`!`, and `*`. An embedded single quote is escaped as `'\''`.
+
+Because the generated file deletes itself as its first statement, source it
+exactly once. Inspect it with `cat` *before* sourcing if you need to debug it:
+
+```bash
+OUTPUT=$(shclap parse --config "$CONFIG" --script "$0" -- "$@")
+cat "$OUTPUT"      # still present
+source "$OUTPUT"   # sets the variables, then removes the file
 ```
 
 ## Usage Patterns

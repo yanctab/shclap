@@ -46,25 +46,18 @@ log_debug() { shclap log debug "$@"; }
 log_trace() { shclap log trace "$@"; }
 "#;
 
-/// Escape a string for safe use in a shell double-quoted context.
+/// Wrap a value in single quotes so the shell reproduces it byte for byte.
 ///
-/// Escapes: $, `, \, ", and !
-fn escape_shell_value(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for c in value.chars() {
-        match c {
-            '$' => escaped.push_str("\\$"),
-            '`' => escaped.push_str("\\`"),
-            '\\' => escaped.push_str("\\\\"),
-            '"' => escaped.push_str("\\\""),
-            '!' => escaped.push_str("\\!"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            _ => escaped.push(c),
-        }
-    }
-    escaped
+/// Single quotes suppress every form of expansion, so any byte sequence is safe
+/// inside them; the sole exception is the single quote itself, which is closed,
+/// escaped, and reopened (`'\''`).
+///
+/// A double-quoted context is deliberately not used here. Inside double quotes
+/// bash leaves `\!` as a literal backslash-bang, and `\n` / `\t` as literal
+/// backslash-n / backslash-t, so any value containing `!`, a newline, or a tab
+/// would come back to the script altered.
+fn single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 /// Convert an argument name to a valid shell variable name.
@@ -101,9 +94,9 @@ pub fn generate_output_string(
     // Output subcommand first if present
     if let Some(subcmd) = subcommand {
         output.push_str(&format!(
-            "export {}SUBCOMMAND=\"{}\"\n",
+            "export {}SUBCOMMAND={}\n",
             prefix,
-            escape_shell_value(subcmd)
+            single_quote(subcmd)
         ));
     }
 
@@ -117,16 +110,12 @@ pub fn generate_output_string(
 
         match value {
             ParsedValue::Single(s) => {
-                let escaped_value = escape_shell_value(s);
-                output.push_str(&format!("export {}=\"{}\"\n", var_name, escaped_value));
+                output.push_str(&format!("export {}={}\n", var_name, single_quote(s)));
             }
             ParsedValue::Multiple(values) => {
-                // Output as bash array: export VAR=("val1" "val2" "val3")
-                let escaped: Vec<String> = values
-                    .iter()
-                    .map(|v| format!("\"{}\"", escape_shell_value(v)))
-                    .collect();
-                output.push_str(&format!("export {}=({})\n", var_name, escaped.join(" ")));
+                // Output as bash array: export VAR=('val1' 'val2' 'val3')
+                let quoted: Vec<String> = values.iter().map(|v| single_quote(v)).collect();
+                output.push_str(&format!("export {}=({})\n", var_name, quoted.join(" ")));
             }
         }
     }
@@ -155,8 +144,7 @@ pub fn generate_output_string_legacy(parsed: &HashMap<String, String>, prefix: &
     for name in keys {
         let value = &parsed[name];
         let var_name = format!("{}{}", prefix, to_shell_var_name(name));
-        let escaped_value = escape_shell_value(value);
-        output.push_str(&format!("export {}=\"{}\"\n", var_name, escaped_value));
+        output.push_str(&format!("export {}={}\n", var_name, single_quote(value)));
     }
 
     output
@@ -172,9 +160,11 @@ pub fn generate_error_output(message: &str) -> Result<PathBuf> {
 
 /// Generate an error output as a string (for testing).
 pub fn generate_error_string(message: &str) -> String {
-    // Escape the message for safe use in double quotes
-    let escaped = escape_shell_value(message);
-    format!("echo \"shclap: {}\" >&2\nexit 1\n", escaped)
+    // Quote the whole line, prefix included, so no part of it can expand.
+    format!(
+        "echo {} >&2\nexit 1\n",
+        single_quote(&format!("shclap: {}", message))
+    )
 }
 
 /// Generate a help output file.
@@ -308,9 +298,7 @@ fn shell_quote(value: &str) -> String {
     if !value.is_empty() && value.chars().all(is_shell_safe) {
         value.to_string()
     } else {
-        // Single quotes suppress every expansion; the only character that needs
-        // care inside them is the single quote itself.
-        format!("'{}'", value.replace('\'', "'\\''"))
+        single_quote(value)
     }
 }
 
@@ -477,8 +465,23 @@ pub fn generate_container_reexec_output(
 }
 
 /// Write content to a temporary file and return its path.
+///
+/// The file cannot be cleaned up by this process: it has to outlive us so the
+/// calling script can `source` it. Instead every generated file removes itself
+/// as its first statement. Unlinking a file that the sourcing shell already
+/// holds open is safe on Unix — the inode survives until that descriptor is
+/// closed, so the rest of the file still reads normally — and it means the file
+/// is gone however the script leaves it, including the `exit` in help, version,
+/// and error output and the `exec` in container re-exec.
+///
+/// Without this, every invocation of shclap would leave a file behind forever.
 fn write_temp_file(content: &str) -> Result<PathBuf> {
     let mut file = NamedTempFile::new()?;
+    let self_delete = format!(
+        "rm -f -- {}\n",
+        single_quote(&file.path().to_string_lossy())
+    );
+    file.write_all(self_delete.as_bytes())?;
     file.write_all(content.as_bytes())?;
     let path = file.into_temp_path().keep()?;
     Ok(path)
@@ -508,8 +511,8 @@ mod tests {
         let parsed = make_map(&[("verbose", "true"), ("output", "file.txt")]);
         let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
-        assert!(output.contains("export SHCLAP_OUTPUT=\"file.txt\""));
-        assert!(output.contains("export SHCLAP_VERBOSE=\"true\""));
+        assert!(output.contains("export SHCLAP_OUTPUT='file.txt'"));
+        assert!(output.contains("export SHCLAP_VERBOSE='true'"));
     }
 
     #[test]
@@ -517,7 +520,7 @@ mod tests {
         let parsed = make_map(&[("value", "$HOME/path")]);
         let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
-        assert!(output.contains("export SHCLAP_VALUE=\"\\$HOME/path\""));
+        assert!(output.contains("export SHCLAP_VALUE='$HOME/path'"));
     }
 
     #[test]
@@ -525,7 +528,7 @@ mod tests {
         let parsed = make_map(&[("cmd", "`whoami`")]);
         let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
-        assert!(output.contains("export SHCLAP_CMD=\"\\`whoami\\`\""));
+        assert!(output.contains("export SHCLAP_CMD='`whoami`'"));
     }
 
     #[test]
@@ -533,7 +536,7 @@ mod tests {
         let parsed = make_map(&[("path", "C:\\Users\\test")]);
         let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
-        assert!(output.contains("export SHCLAP_PATH=\"C:\\\\Users\\\\test\""));
+        assert!(output.contains("export SHCLAP_PATH='C:\\Users\\test'"));
     }
 
     #[test]
@@ -541,7 +544,7 @@ mod tests {
         let parsed = make_map(&[("msg", "say \"hello\"")]);
         let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
-        assert!(output.contains("export SHCLAP_MSG=\"say \\\"hello\\\"\""));
+        assert!(output.contains("export SHCLAP_MSG='say \"hello\"'"));
     }
 
     #[test]
@@ -549,7 +552,7 @@ mod tests {
         let parsed = make_map(&[("msg", "hello!")]);
         let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
-        assert!(output.contains("export SHCLAP_MSG=\"hello\\!\""));
+        assert!(output.contains("export SHCLAP_MSG='hello!'"));
     }
 
     #[test]
@@ -557,7 +560,7 @@ mod tests {
         let parsed = make_map(&[("text", "line1\nline2")]);
         let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
-        assert!(output.contains("export SHCLAP_TEXT=\"line1\\nline2\""));
+        assert!(output.contains("export SHCLAP_TEXT='line1\nline2'"));
     }
 
     #[test]
@@ -565,7 +568,7 @@ mod tests {
         let parsed = make_map(&[("name", "test")]);
         let output = generate_output_string_legacy(&parsed, "MYAPP_");
 
-        assert!(output.contains("export MYAPP_NAME=\"test\""));
+        assert!(output.contains("export MYAPP_NAME='test'"));
     }
 
     #[test]
@@ -573,7 +576,7 @@ mod tests {
         let parsed = make_map(&[("empty", "")]);
         let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
-        assert!(output.contains("export SHCLAP_EMPTY=\"\""));
+        assert!(output.contains("export SHCLAP_EMPTY=''"));
     }
 
     #[test]
@@ -581,7 +584,7 @@ mod tests {
         let parsed = make_map(&[("msg", "hello world")]);
         let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
-        assert!(output.contains("export SHCLAP_MSG=\"hello world\""));
+        assert!(output.contains("export SHCLAP_MSG='hello world'"));
     }
 
     #[test]
@@ -589,7 +592,7 @@ mod tests {
         let parsed = make_map(&[("my-option", "value")]);
         let output = generate_output_string_legacy(&parsed, "SHCLAP_");
 
-        assert!(output.contains("export SHCLAP_MY_OPTION=\"value\""));
+        assert!(output.contains("export SHCLAP_MY_OPTION='value'"));
     }
 
     #[test]
@@ -600,7 +603,7 @@ mod tests {
         assert!(path.exists());
 
         let contents = std::fs::read_to_string(&path).unwrap();
-        assert!(contents.contains("export SHCLAP_TEST=\"value\""));
+        assert!(contents.contains("export SHCLAP_TEST='value'"));
 
         // Clean up
         std::fs::remove_file(path).unwrap();
@@ -611,9 +614,7 @@ mod tests {
         let parsed = make_map(&[("complex", "$var \"quoted\" `cmd` \\path!")]);
         let output = generate_output_string_legacy(&parsed, "TEST_");
 
-        assert!(
-            output.contains("export TEST_COMPLEX=\"\\$var \\\"quoted\\\" \\`cmd\\` \\\\path\\!\"")
-        );
+        assert!(output.contains("export TEST_COMPLEX='$var \"quoted\" `cmd` \\path!'"));
     }
 
     // Schema v2 tests
@@ -626,8 +627,8 @@ mod tests {
         ]);
         let output = generate_output_string(&parsed, "SHCLAP_", None);
 
-        assert!(output.contains("export SHCLAP_OUTPUT=\"file.txt\""));
-        assert!(output.contains("export SHCLAP_VERBOSE=\"true\""));
+        assert!(output.contains("export SHCLAP_OUTPUT='file.txt'"));
+        assert!(output.contains("export SHCLAP_VERBOSE='true'"));
     }
 
     #[test]
@@ -642,7 +643,7 @@ mod tests {
         )]);
         let output = generate_output_string(&parsed, "SHCLAP_", None);
 
-        assert!(output.contains("export SHCLAP_FILES=(\"a.txt\" \"b.txt\" \"c.txt\")"));
+        assert!(output.contains("export SHCLAP_FILES=('a.txt' 'b.txt' 'c.txt')"));
     }
 
     #[test]
@@ -656,7 +657,7 @@ mod tests {
         )]);
         let output = generate_output_string(&parsed, "SHCLAP_", None);
 
-        assert!(output.contains("export SHCLAP_FILES=(\"\\$HOME/a.txt\" \"file with spaces\")"));
+        assert!(output.contains("export SHCLAP_FILES=('$HOME/a.txt' 'file with spaces')"));
     }
 
     #[test]
@@ -664,8 +665,8 @@ mod tests {
         let parsed = make_parsed_map(&[("template", ParsedValue::Single("default".to_string()))]);
         let output = generate_output_string(&parsed, "SHCLAP_", Some("init"));
 
-        assert!(output.contains("export SHCLAP_SUBCOMMAND=\"init\""));
-        assert!(output.contains("export SHCLAP_TEMPLATE=\"default\""));
+        assert!(output.contains("export SHCLAP_SUBCOMMAND='init'"));
+        assert!(output.contains("export SHCLAP_TEMPLATE='default'"));
     }
 
     #[test]
@@ -690,23 +691,150 @@ mod tests {
         ]);
         let output = generate_output_string(&parsed, "SHCLAP_", None);
 
-        assert!(output.contains("export SHCLAP_VERBOSE=\"true\""));
-        assert!(output.contains("export SHCLAP_FILES=(\"a.txt\" \"b.txt\")"));
+        assert!(output.contains("export SHCLAP_VERBOSE='true'"));
+        assert!(output.contains("export SHCLAP_FILES=('a.txt' 'b.txt')"));
     }
 
     #[test]
     fn test_generate_error_string() {
         let output = generate_error_string("unknown option: --foo");
-        assert!(output.contains("echo \"shclap: unknown option: --foo\" >&2"));
+        assert!(output.contains("echo 'shclap: unknown option: --foo' >&2"));
         assert!(output.contains("exit 1"));
     }
 
     #[test]
-    fn test_generate_error_string_escapes_special_chars() {
+    fn test_generate_error_string_quotes_special_chars() {
         let output = generate_error_string("bad value: $HOME `test`");
-        assert!(output.contains("\\$HOME"));
-        assert!(output.contains("\\`test\\`"));
+        // Single quotes keep the message literal, so nothing expands when sourced.
+        assert!(output.contains("echo 'shclap: bad value: $HOME `test`' >&2"));
         assert!(output.contains("exit 1"));
+    }
+
+    #[test]
+    fn test_generate_error_string_escapes_embedded_single_quote() {
+        let output = generate_error_string("can't parse");
+        assert!(output.contains("echo 'shclap: can'\\''t parse' >&2"));
+    }
+
+    #[test]
+    fn test_generated_file_deletes_itself() {
+        let parsed = make_parsed_map(&[("test", ParsedValue::Single("value".to_string()))]);
+        let path = generate_output(&parsed, "SHCLAP_", None).unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
+
+        // The first statement must remove the file, naming its own path.
+        let first_line = contents.lines().next().unwrap();
+        assert_eq!(
+            first_line,
+            format!("rm -f -- {}", single_quote(&path.to_string_lossy()))
+        );
+
+        // Sourcing it must leave nothing behind while still setting the variable.
+        let shell = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(format!(
+                "source {}; printf %s \"$SHCLAP_TEST\"",
+                single_quote(&path.to_string_lossy())
+            ))
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&shell.stdout), "value");
+        assert!(!path.exists(), "sourcing must remove the temp file");
+    }
+
+    #[test]
+    fn test_every_output_kind_deletes_itself() {
+        let kinds: Vec<PathBuf> = vec![
+            generate_error_output("boom").unwrap(),
+            generate_help_output("some help\n").unwrap(),
+            generate_version_output("1.0.0\n").unwrap(),
+        ];
+
+        for path in kinds {
+            let contents = std::fs::read_to_string(&path).unwrap();
+            assert!(
+                contents.starts_with("rm -f -- "),
+                "missing self-delete in {}: {}",
+                path.display(),
+                contents
+            );
+            let status = std::process::Command::new("bash")
+                .arg("-c")
+                .arg(format!("source {}", single_quote(&path.to_string_lossy())))
+                .output()
+                .unwrap();
+            let _ = status;
+            assert!(!path.exists(), "{} survived sourcing", path.display());
+        }
+    }
+
+    /// Values must survive a round trip through bash byte for byte. Double-quoted
+    /// output used to mangle `!`, newlines, and tabs into literal backslash pairs.
+    #[test]
+    fn test_values_round_trip_through_bash() {
+        let cases = [
+            "hello!",
+            "line1\nline2",
+            "tab\there",
+            "it's",
+            "$HOME `id` \"q\" \\ !",
+            "",
+            "trailing space ",
+            "* ? [glob]",
+            "semi;colon && pipe|",
+        ];
+
+        for case in cases {
+            let parsed = make_parsed_map(&[("v", ParsedValue::Single(case.to_string()))]);
+            let path = generate_output(&parsed, "T_", None).unwrap();
+            let out = std::process::Command::new("bash")
+                .arg("-c")
+                .arg(format!(
+                    "source {}; printf %s \"$T_V\"",
+                    single_quote(&path.to_string_lossy())
+                ))
+                .output()
+                .unwrap();
+            assert_eq!(
+                String::from_utf8_lossy(&out.stdout),
+                *case,
+                "value did not round trip: {:?}",
+                case
+            );
+        }
+    }
+
+    #[test]
+    fn test_multiple_values_round_trip_through_bash() {
+        let values = vec![
+            "a b".to_string(),
+            "it's".to_string(),
+            "bang!".to_string(),
+            "$HOME".to_string(),
+        ];
+        let parsed = make_parsed_map(&[("files", ParsedValue::Multiple(values.clone()))]);
+        let path = generate_output(&parsed, "T_", None).unwrap();
+
+        let out = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(format!(
+                "source {}; printf '%s\\n' \"${{T_FILES[@]}}\"",
+                single_quote(&path.to_string_lossy())
+            ))
+            .output()
+            .unwrap();
+        let got: Vec<String> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(got, values);
+    }
+
+    #[test]
+    fn test_single_quote_escapes_embedded_quote() {
+        assert_eq!(single_quote("it's"), "'it'\\''s'");
+        assert_eq!(single_quote(""), "''");
+        assert_eq!(single_quote("plain"), "'plain'");
     }
 
     #[test]

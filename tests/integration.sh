@@ -1814,6 +1814,179 @@ else
 fi
 rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
 
+section "20. Temp File Cleanup"
+
+# Test: sourcing a parse output file removes it
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"v","short":"v","type":"flag"}]}' --script "$0" -- -v)
+bash -c "source '$OUTPUT'" >/dev/null 2>&1 || true
+if [[ ! -e "$OUTPUT" ]]; then
+    pass "Sourcing parse output removes the temp file"
+else
+    fail "Temp file cleanup" "File removed after source" "$OUTPUT still exists"
+fi
+
+# Test: help, version, and error outputs clean up after themselves too
+run_test
+CLEANUP_LEAKS=""
+for ARGS in "--help" "--version" "--definitely-unknown"; do
+    OUTPUT=$("$SHCLAP" parse --config '{"name":"test","version":"1.0"}' --script "$0" -- $ARGS)
+    bash -c "source '$OUTPUT'" >/dev/null 2>&1 || true
+    [[ -e "$OUTPUT" ]] && CLEANUP_LEAKS="$CLEANUP_LEAKS $ARGS"
+done
+if [[ -z "$CLEANUP_LEAKS" ]]; then
+    pass "Help, version, and error outputs remove themselves"
+else
+    fail "Temp file cleanup" "All outputs removed" "leaked:$CLEANUP_LEAKS"
+fi
+
+# Test: a run of parses leaves no accumulating temp files
+run_test
+BEFORE_COUNT=$(find /tmp -maxdepth 1 -name '.tmp*' -type f 2>/dev/null | wc -l)
+for _ in 1 2 3 4 5; do
+    source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"v","short":"v","type":"flag"}]}' --script "$0" -- -v)"
+done
+AFTER_COUNT=$(find /tmp -maxdepth 1 -name '.tmp*' -type f 2>/dev/null | wc -l)
+if [[ "$AFTER_COUNT" -le "$BEFORE_COUNT" ]]; then
+    pass "Repeated parses do not accumulate temp files"
+else
+    fail "Temp file accumulation" "no growth from $BEFORE_COUNT" "grew to $AFTER_COUNT"
+fi
+
+section "21. Value Fidelity Through the Shell"
+
+# Test: exclamation mark survives (was emitted as \! inside double quotes)
+run_test
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"msg","long":"msg","type":"option"}]}' --script "$0" -- --msg 'hi!there')"
+if [[ "$SHCLAP_MSG" == 'hi!there' ]]; then
+    pass "Exclamation mark round-trips unchanged"
+else
+    fail "Exclamation mark" "hi!there" "$SHCLAP_MSG"
+fi
+
+# Test: embedded newline survives (was emitted as literal \n)
+run_test
+EXPECTED_NEWLINE=$(printf 'a\nb')
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"msg","long":"msg","type":"option"}]}' --script "$0" -- --msg "$EXPECTED_NEWLINE")"
+if [[ "$SHCLAP_MSG" == "$EXPECTED_NEWLINE" ]]; then
+    pass "Embedded newline round-trips unchanged"
+else
+    fail "Embedded newline" "$(printf 'a\nb')" "$SHCLAP_MSG"
+fi
+
+# Test: embedded tab survives
+run_test
+EXPECTED_TAB=$(printf 'a\tb')
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"msg","long":"msg","type":"option"}]}' --script "$0" -- --msg "$EXPECTED_TAB")"
+if [[ "$SHCLAP_MSG" == "$EXPECTED_TAB" ]]; then
+    pass "Embedded tab round-trips unchanged"
+else
+    fail "Embedded tab" "a<TAB>b" "$SHCLAP_MSG"
+fi
+
+# Test: single quote survives
+run_test
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"msg","long":"msg","type":"option"}]}' --script "$0" -- --msg "it's here")"
+if [[ "$SHCLAP_MSG" == "it's here" ]]; then
+    pass "Single quote round-trips unchanged"
+else
+    fail "Single quote" "it's here" "$SHCLAP_MSG"
+fi
+
+# Test: shell metacharacters are inert, not expanded or executed
+run_test
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"msg","long":"msg","type":"option"}]}' --script "$0" -- --msg '$HOME `id` $(id) * ;echo pwned')"
+if [[ "$SHCLAP_MSG" == '$HOME `id` $(id) * ;echo pwned' ]]; then
+    pass "Shell metacharacters stay literal"
+else
+    fail "Metacharacter literalness" '$HOME `id` $(id) * ;echo pwned' "$SHCLAP_MSG"
+fi
+
+# Test: array values keep their element boundaries and specials
+run_test
+source "$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"f","long":"f","type":"option","multiple":true}]}' --script "$0" -- --f 'a b' --f "it's" --f 'bang!')"
+if [[ "${#SHCLAP_F[@]}" -eq 3 && "${SHCLAP_F[0]}" == 'a b' && "${SHCLAP_F[1]}" == "it's" && "${SHCLAP_F[2]}" == 'bang!' ]]; then
+    pass "Array values preserve boundaries and special characters"
+else
+    fail "Array fidelity" "3 elements: 'a b', it's, bang!" "${SHCLAP_F[*]}"
+fi
+
+section "22. Config Validation Across Subcommands"
+
+# Test: invalid config is reported (not a panic) by help, version, and print
+run_test
+BAD_CONFIG='{"name":"t","args":[{"name":"a","type":"flag"},{"name":"a","type":"flag"}]}'
+VALIDATION_FAILURES=""
+for SUB in help version print; do
+    SUB_OUT=$("$SHCLAP" "$SUB" --config "$BAD_CONFIG" 2>&1) && RC=0 || RC=$?
+    # Must exit 1 with the config error, not 101 from a panic
+    if [[ "$RC" -ne 1 ]] || ! echo "$SUB_OUT" | grep -q "duplicate argument name: a"; then
+        VALIDATION_FAILURES="$VALIDATION_FAILURES $SUB(rc=$RC)"
+    fi
+done
+if [[ -z "$VALIDATION_FAILURES" ]]; then
+    pass "help, version, and print reject invalid configs cleanly"
+else
+    fail "Subcommand validation" "clean rc=1 error" "failed:$VALIDATION_FAILURES"
+fi
+
+# Test: parse reports the JSON error only once
+run_test
+OUTPUT=$("$SHCLAP" parse --config 'not valid json' --script "$0" -- )
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+# grep -c counts matching lines; the doubled phrase was on one line, so count occurrences
+if [[ "$(grep -o "failed to parse JSON config" <<< "$ERROR_OUTPUT" | wc -l)" -eq 1 ]]; then
+    pass "JSON parse error is not double-prefixed"
+else
+    fail "Error prefix" "one occurrence" "$ERROR_OUTPUT"
+fi
+
+section "23. Archive Streaming Byte Exactness"
+
+STREAM_TMPDIR=$(mktemp -d)
+echo "stream content" > "$STREAM_TMPDIR/s.txt"
+STREAM_CONFIG="{\"bundles\":{\"b\":[{\"from\":\"$STREAM_TMPDIR/s.txt\",\"to\":\"s.txt\"}]}}"
+
+# Test: gzip accepts the stream with no trailing garbage
+run_test
+"$SHCLAP" collect --config "$STREAM_CONFIG" --type archive --archive-format tar.gz --out - 2>/dev/null > "$STREAM_TMPDIR/o.tgz"
+if gzip -t "$STREAM_TMPDIR/o.tgz" 2>/dev/null; then
+    pass "tar.gz stream has no trailing garbage"
+else
+    fail "tar.gz stream" "gzip -t clean" "$(gzip -t "$STREAM_TMPDIR/o.tgz" 2>&1)"
+fi
+
+# Test: the stream does not end with the output path marker
+run_test
+"$SHCLAP" collect --config "$STREAM_CONFIG" --type archive --archive-format tar --out - 2>/dev/null > "$STREAM_TMPDIR/o.tar"
+if [[ "$(tail -c 2 "$STREAM_TMPDIR/o.tar" | xxd -p)" != "2d0a" ]]; then
+    pass "tar stream does not end with the literal output path"
+else
+    fail "tar stream" "no trailing '-'" "stream ends with '-\\n'"
+fi
+
+# Test: streamed tar still extracts correctly
+run_test
+STREAM_EXTRACT="$STREAM_TMPDIR/extract"
+mkdir -p "$STREAM_EXTRACT"
+tar -xf "$STREAM_TMPDIR/o.tar" -C "$STREAM_EXTRACT" 2>/dev/null
+if [[ -f "$STREAM_EXTRACT/s.txt" ]] && grep -q "stream content" "$STREAM_EXTRACT/s.txt"; then
+    pass "Streamed tar extracts with correct contents"
+else
+    fail "Streamed tar extract" "s.txt with content" "$(ls -la $STREAM_EXTRACT)"
+fi
+
+# Test: writing to a real file still reports the path on stdout
+run_test
+PATH_OUT=$("$SHCLAP" collect --config "$STREAM_CONFIG" --type archive --archive-format tar --out "$STREAM_TMPDIR/real.tar" 2>/dev/null)
+if [[ "$PATH_OUT" == "$STREAM_TMPDIR/real.tar" ]]; then
+    pass "File output still prints its path to stdout"
+else
+    fail "File output path" "$STREAM_TMPDIR/real.tar" "$PATH_OUT"
+fi
+
+rm -rf "$STREAM_TMPDIR"
+
 #
 # Summary
 #
