@@ -71,6 +71,28 @@ fn has_glob_metacharacters(path: &str) -> bool {
     path.contains('*') || path.contains('?') || path.contains('[')
 }
 
+/// Validate that a destination path is safe (relative, no .., no absolute).
+fn validate_to_path(to_path: &str) -> anyhow::Result<()> {
+    use std::path::Path;
+
+    // Check if path is absolute
+    if Path::new(to_path).is_absolute() {
+        return Err(anyhow::anyhow!("'to' path must be relative: {}", to_path));
+    }
+
+    // Check for .. segments
+    for component in Path::new(to_path).components() {
+        if component.as_os_str() == ".." {
+            return Err(anyhow::anyhow!(
+                "'to' path cannot contain '..': {}",
+                to_path
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 /// Process a single glob pattern and return matched files.
 fn resolve_glob_pattern(pattern: &str) -> anyhow::Result<Vec<String>> {
     use glob::glob_with;
@@ -571,10 +593,9 @@ mod tests {
         fs::write(temp_path.join("file1.log"), "content").expect("Failed to write file");
         fs::write(temp_path.join("file2.log"), "content").expect("Failed to write file");
 
-        // Test glob pattern with trailing-slash to
+        // Test glob pattern with trailing-slash to (use relative path)
         let out_dir = TempDir::new().expect("Failed to create output dir");
         let pattern = format!("{}/*.log", temp_path.display());
-        let to_dir = format!("{}/", out_dir.path().display());
 
         let config = CollectConfig {
             schema_version: 1,
@@ -584,7 +605,7 @@ mod tests {
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
                         from: pattern,
-                        to: Some(to_dir),
+                        to: Some("dest/".to_string()),
                         optional: false,
                     })],
                 );
@@ -601,14 +622,14 @@ mod tests {
         );
         assert!(result.is_ok(), "run() should succeed");
 
-        // Verify files were copied with basenames
-        let files: Vec<_> = fs::read_dir(out_dir.path())
-            .expect("Failed to read output dir")
+        // Verify files were copied with basenames under dest/
+        let files: Vec<_> = fs::read_dir(out_dir.path().join("dest"))
+            .expect("Failed to read dest dir")
             .filter_map(|e| e.ok())
             .filter(|e| e.path().is_file())
             .collect();
 
-        assert_eq!(files.len(), 2, "Should have copied 2 files");
+        assert_eq!(files.len(), 2, "Should have copied 2 files into dest/");
     }
 
     #[test]
@@ -699,6 +720,316 @@ mod tests {
 
         assert_eq!(files.len(), 2, "Should have copied 2 files with basenames");
     }
+
+    #[test]
+    fn test_env_expansion_happy_path() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        // Create a source file
+        let src_file = temp_path.join("source.txt");
+        fs::write(&src_file, "content").expect("Failed to write source file");
+
+        // Set environment variable
+        let var_name = "TEST_SRC_PATH";
+        std::env::set_var(var_name, src_file.to_str().unwrap());
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = HashMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: format!("${}", var_name),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &["test".to_string()],
+        );
+        assert!(result.is_ok(), "run() should succeed with env expansion");
+
+        // Verify file was copied
+        let files: Vec<_> = fs::read_dir(out_dir.path())
+            .expect("Failed to read output dir")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .collect();
+
+        assert_eq!(files.len(), 1, "Should have copied 1 file");
+    }
+
+    #[test]
+    fn test_undefined_variable_error() {
+        use tempfile::TempDir;
+
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        // Clear the variable to ensure it's undefined
+        std::env::remove_var("UNDEFINED_TEST_VAR_12345");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = HashMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: "$UNDEFINED_TEST_VAR_12345".to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(result.is_err(), "run() should fail with undefined variable");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("undefined variable"),
+            "Error should mention undefined variable: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_to_safety_rejects_absolute_path() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        // Create source file
+        let src_file = temp_path.join("source.txt");
+        fs::write(&src_file, "content").expect("Failed to write source file");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = HashMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: src_file.to_str().unwrap().to_string(),
+                        to: Some("/absolute/path/to/dest.txt".to_string()),
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(result.is_err(), "run() should reject absolute path in to");
+    }
+
+    #[test]
+    fn test_to_safety_rejects_parent_directory() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        // Create source file
+        let src_file = temp_path.join("source.txt");
+        fs::write(&src_file, "content").expect("Failed to write source file");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = HashMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: src_file.to_str().unwrap().to_string(),
+                        to: Some("../escaped.txt".to_string()),
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(result.is_err(), "run() should reject .. in to path");
+    }
+
+    #[test]
+    fn test_optional_entry_skips_missing_source() {
+        use tempfile::TempDir;
+
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = HashMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: "/nonexistent/file.txt".to_string(),
+                        to: None,
+                        optional: true,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(
+            result.is_ok(),
+            "run() should succeed with optional missing entry"
+        );
+    }
+
+    #[test]
+    fn test_last_wins_collision() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        // Create two source files with different content
+        let src_file1 = temp_path.join("file1.txt");
+        let src_file2 = temp_path.join("file2.txt");
+        fs::write(&src_file1, "content1").expect("Failed to write file1");
+        fs::write(&src_file2, "content2").expect("Failed to write file2");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = HashMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![
+                        Entry::Object(EntryObject {
+                            from: src_file1.to_str().unwrap().to_string(),
+                            to: Some("dest.txt".to_string()),
+                            optional: false,
+                        }),
+                        Entry::Object(EntryObject {
+                            from: src_file2.to_str().unwrap().to_string(),
+                            to: Some("dest.txt".to_string()),
+                            optional: false,
+                        }),
+                    ],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(result.is_ok(), "run() should succeed with collision");
+
+        // Verify that the later file (content2) won
+        let dest_file = out_dir.path().join("dest.txt");
+        let content = fs::read_to_string(&dest_file).expect("Failed to read dest file");
+        assert_eq!(content, "content2", "Later entry should win in collision");
+    }
+
+    #[test]
+    fn test_directory_source_rejection() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        // Create a subdirectory
+        let src_dir = temp_path.join("subdir");
+        fs::create_dir(&src_dir).expect("Failed to create subdirectory");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = HashMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: src_dir.to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(result.is_err(), "run() should reject directory source");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("is a directory"),
+            "Error should mention directory: {}",
+            err_msg
+        );
+    }
 }
 
 /// Run the collection engine: copy matched files from config to destination.
@@ -776,6 +1107,15 @@ pub fn run(
 
                     // Process each match
                     for matched_file in matches {
+                        // Check if source is a directory
+                        if Path::new(&matched_file).is_dir() {
+                            return Err(anyhow::anyhow!(
+                                "'{}' is a directory; use '{}/**/*' to include contents",
+                                matched_file,
+                                matched_file
+                            ));
+                        }
+
                         let to_path = if let Some(to) = &to_opt {
                             // Expand environment variables in to
                             let expanded_to = expand(to, |name| std::env::var(name).ok())
@@ -808,7 +1148,16 @@ pub fn run(
                                 })?
                         };
 
+                        // Validate destination path safety
+                        validate_to_path(&to_path)?;
+
                         let dest_full_path = Path::new(out).join(&to_path);
+
+                        // Create parent directories if needed
+                        if let Some(parent) = dest_full_path.parent() {
+                            fs::create_dir_all(parent)
+                                .context("failed to create parent directory")?;
+                        }
 
                         // Copy the file
                         fs::copy(&matched_file, &dest_full_path).context("failed to copy file")?;
@@ -824,6 +1173,15 @@ pub fn run(
                             continue;
                         }
                         return Err(anyhow::anyhow!("source file not found: {}", from));
+                    }
+
+                    // Check if source is a directory
+                    if Path::new(&from).is_dir() {
+                        return Err(anyhow::anyhow!(
+                            "'{}' is a directory; use '{}/**/*' to include contents",
+                            from,
+                            from
+                        ));
                     }
 
                     // Determine destination
@@ -842,7 +1200,15 @@ pub fn run(
                             })?
                     };
 
+                    // Validate destination path safety
+                    validate_to_path(&to_path)?;
+
                     let dest_full_path = Path::new(out).join(&to_path);
+
+                    // Create parent directories if needed
+                    if let Some(parent) = dest_full_path.parent() {
+                        fs::create_dir_all(parent).context("failed to create parent directory")?;
+                    }
 
                     // Copy the file
                     fs::copy(&from, &dest_full_path).context("failed to copy file")?;
