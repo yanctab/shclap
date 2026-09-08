@@ -2082,6 +2082,85 @@ else
     fail "Valid names" "a / b" "$SHCLAP_MY_OPT / ${SHCLAP__PRIVATE:-<unset>}"
 fi
 
+section "25. bzip2 and xz Archive Formats"
+
+BZX_TMPDIR=$(mktemp -d)
+echo "compressed content" > "$BZX_TMPDIR/c.txt"
+BZX_CONFIG="{\"bundles\":{\"b\":[{\"from\":\"$BZX_TMPDIR/c.txt\",\"to\":\"c.txt\"}]}}"
+
+# Test: tar.bz2 written to a file and readable by GNU tar
+run_test
+"$SHCLAP" collect --config "$BZX_CONFIG" --type archive --archive-format tar.bz2 --out "$BZX_TMPDIR/o.tar.bz2" >/dev/null 2>&1
+if bzip2 -t "$BZX_TMPDIR/o.tar.bz2" 2>/dev/null && tar -tjf "$BZX_TMPDIR/o.tar.bz2" 2>/dev/null | grep -q "c.txt"; then
+    pass "tar.bz2 archive is valid bzip2 and contains the file"
+else
+    fail "tar.bz2 output" "valid bzip2 containing c.txt" "$(file -b "$BZX_TMPDIR/o.tar.bz2" 2>&1)"
+fi
+
+# Test: tar.xz written to a file and readable by GNU tar
+run_test
+"$SHCLAP" collect --config "$BZX_CONFIG" --type archive --archive-format tar.xz --out "$BZX_TMPDIR/o.tar.xz" >/dev/null 2>&1
+if xz -t "$BZX_TMPDIR/o.tar.xz" 2>/dev/null && tar -tJf "$BZX_TMPDIR/o.tar.xz" 2>/dev/null | grep -q "c.txt"; then
+    pass "tar.xz archive is valid xz and contains the file"
+else
+    fail "tar.xz output" "valid xz containing c.txt" "$(file -b "$BZX_TMPDIR/o.tar.xz" 2>&1)"
+fi
+
+# Test: extracted contents survive the round trip
+run_test
+BZX_EXTRACT="$BZX_TMPDIR/x"; mkdir -p "$BZX_EXTRACT"
+tar -xjf "$BZX_TMPDIR/o.tar.bz2" -C "$BZX_EXTRACT" 2>/dev/null
+if [[ -f "$BZX_EXTRACT/c.txt" ]] && grep -q "compressed content" "$BZX_EXTRACT/c.txt"; then
+    pass "tar.bz2 extracts with correct contents"
+else
+    fail "tar.bz2 extract" "c.txt with content" "$(ls -la "$BZX_EXTRACT")"
+fi
+
+run_test
+BZX_EXTRACT2="$BZX_TMPDIR/x2"; mkdir -p "$BZX_EXTRACT2"
+tar -xJf "$BZX_TMPDIR/o.tar.xz" -C "$BZX_EXTRACT2" 2>/dev/null
+if [[ -f "$BZX_EXTRACT2/c.txt" ]] && grep -q "compressed content" "$BZX_EXTRACT2/c.txt"; then
+    pass "tar.xz extracts with correct contents"
+else
+    fail "tar.xz extract" "c.txt with content" "$(ls -la "$BZX_EXTRACT2")"
+fi
+
+# Test: format auto-detected from each accepted extension
+run_test
+BZX_DETECT_FAILURES=""
+for EXT in tar.bz2 tbz2 tbz tar.xz txz; do
+    "$SHCLAP" collect --config "$BZX_CONFIG" --type archive --out "$BZX_TMPDIR/d.$EXT" >/dev/null 2>&1
+    case "$EXT" in
+        tar.bz2|tbz2|tbz) bzip2 -t "$BZX_TMPDIR/d.$EXT" 2>/dev/null || BZX_DETECT_FAILURES="$BZX_DETECT_FAILURES $EXT" ;;
+        tar.xz|txz)       xz -t "$BZX_TMPDIR/d.$EXT" 2>/dev/null || BZX_DETECT_FAILURES="$BZX_DETECT_FAILURES $EXT" ;;
+    esac
+done
+if [[ -z "$BZX_DETECT_FAILURES" ]]; then
+    pass "Extension auto-detection works for tar.bz2, tbz2, tbz, tar.xz, txz"
+else
+    fail "Extension detection" "all detected" "failed:$BZX_DETECT_FAILURES"
+fi
+
+# Test: streaming to stdout stays byte-exact for the new codecs
+run_test
+"$SHCLAP" collect --config "$BZX_CONFIG" --type archive --archive-format tar.bz2 --out - 2>/dev/null > "$BZX_TMPDIR/s.tar.bz2"
+"$SHCLAP" collect --config "$BZX_CONFIG" --type archive --archive-format tar.xz --out - 2>/dev/null > "$BZX_TMPDIR/s.tar.xz"
+if bzip2 -t "$BZX_TMPDIR/s.tar.bz2" 2>/dev/null && xz -t "$BZX_TMPDIR/s.tar.xz" 2>/dev/null; then
+    pass "tar.bz2 and tar.xz stream to stdout with no trailing garbage"
+else
+    fail "New codec streaming" "clean streams" "bz2=$(bzip2 -t "$BZX_TMPDIR/s.tar.bz2" 2>&1) xz=$(xz -t "$BZX_TMPDIR/s.tar.xz" 2>&1)"
+fi
+
+# Test: the man page and docs no longer promise formats that do not exist
+run_test
+if "$SHCLAP" collect --help 2>&1 | grep -q "tar.bz2" && "$SHCLAP" collect --help 2>&1 | grep -q "tar.xz"; then
+    pass "--archive-format advertises tar.bz2 and tar.xz"
+else
+    fail "CLI help" "both formats listed" "$("$SHCLAP" collect --help 2>&1 | grep -i 'archive-format' -A2)"
+fi
+
+rm -rf "$BZX_TMPDIR"
+
 #
 # Summary
 #

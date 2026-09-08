@@ -277,7 +277,7 @@ Shipped in #131-#137. Marks below reflect the code as it stands; see
 - ~~Wire `--config` / `--config-file` argument parsing~~
 - ~~Wire `--type` (dir/archive) argument parsing~~
 - ~~Wire `--out` output path argument parsing~~
-- ~~Wire `--archive-format` format selection~~ (tar, tar.gz, zip only)
+- ~~Wire `--archive-format` format selection~~
 - ~~Wire `--bundle` bundle selection (optional)~~
 
 ### Collect Module (`src/collect/`)
@@ -305,10 +305,8 @@ Shipped in #131-#137. Marks below reflect the code as it stands; see
 ### Archive Output (Multiple Formats)
 - ~~Implement TAR archive output (uncompressed: `.tar`)~~
 - ~~Implement gzip compression (`.tar.gz`)~~
-- [ ] Implement bzip2 compression (`.tar.bz2`) — advertised in `docs/collect.md`
-      and `man/shclap.1` but not implemented
-- [ ] Implement xz compression (`.tar.xz`) — advertised in `docs/collect.md`
-      and `man/shclap.1` but not implemented
+- ~~Implement bzip2 compression (`.tar.bz2`)~~
+- ~~Implement xz compression (`.tar.xz`)~~
 - ~~Implement ZIP archive output (`.zip`)~~
 - ~~Auto-detect format from file extension~~
 - ~~Support `--out=-` streaming to stdout~~
@@ -342,11 +340,13 @@ Shipped in #131-#137. Marks below reflect the code as it stands; see
 - [ ] Link to `docs/collect.md` in SEE ALSO section
 
 ### Known gaps
-`docs/collect.md` and `man/shclap.1` describe behaviour that does not exist:
-`tar.bz2` / `tar.xz` formats, collision detection as an error, path
+`docs/collect.md` and `man/shclap.1` still describe behaviour that does not
+exist: collision detection as an error (the code is last-wins), path
 canonicalisation and symlink resolution, and exit code 2 for invalid
 arguments. Its documented error strings also differ from the ones the code
 emits. Either implement these or trim the docs to match.
+
+`tar.bz2` and `tar.xz` were in this list and are now implemented.
 
 ---
 
