@@ -83,7 +83,10 @@ fn validate_to_path(to_path: &str) -> anyhow::Result<()> {
     // Check for .. segments
     for component in Path::new(to_path).components() {
         if component.as_os_str() == ".." {
-            return Err(anyhow::anyhow!("'to' path cannot contain '..': {}", to_path));
+            return Err(anyhow::anyhow!(
+                "'to' path cannot contain '..': {}",
+                to_path
+            ));
         }
     }
 
@@ -1152,7 +1155,8 @@ pub fn run(
 
                         // Create parent directories if needed
                         if let Some(parent) = dest_full_path.parent() {
-                            fs::create_dir_all(parent).context("failed to create parent directory")?;
+                            fs::create_dir_all(parent)
+                                .context("failed to create parent directory")?;
                         }
 
                         // Copy the file
