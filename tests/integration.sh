@@ -1558,6 +1558,262 @@ else
     fi
 fi
 
+
+section "25. shclap collect"
+
+# Test: Basic dir collect with bare path entry
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "test content" > "$COLLECT_TMPDIR/src/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+OUTPUT=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null)
+if [[ -f "$OUTPUT_DIR/file.txt" ]] && grep -q "test content" "$OUTPUT_DIR/file.txt"; then
+    pass "Basic dir collect with bare path entry"
+else
+    fail "Basic dir collect with bare path entry" "file.txt with 'test content'" "$(ls -la $OUTPUT_DIR 2>&1)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: Archive collect for .tar format
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "tar content" > "$COLLECT_TMPDIR/src/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_TAR=$(mktemp --suffix=.tar)
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_TAR" --type archive --archive-format tar 2>/dev/null
+if tar -tf "$OUTPUT_TAR" | grep -q "file.txt"; then
+    pass "Archive collect for .tar format"
+else
+    fail "Archive collect for .tar format" "tar -tf should list file.txt" "$(tar -tf $OUTPUT_TAR 2>&1)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_TAR"
+
+# Test: Archive collect for .tar.gz format
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "tar.gz content" > "$COLLECT_TMPDIR/src/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_TARGZ=$(mktemp --suffix=.tar.gz)
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_TARGZ" --type archive --archive-format tar.gz 2>/dev/null
+if tar -tzf "$OUTPUT_TARGZ" | grep -q "file.txt"; then
+    pass "Archive collect for .tar.gz format"
+else
+    fail "Archive collect for .tar.gz format" "tar -tzf should list file.txt" "$(tar -tzf $OUTPUT_TARGZ 2>&1)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_TARGZ"
+
+# Test: Archive collect for .zip format
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "zip content" > "$COLLECT_TMPDIR/src/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_ZIP=$(mktemp --suffix=.zip)
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_ZIP" --type archive --archive-format zip 2>/dev/null
+if unzip -l "$OUTPUT_ZIP" | grep -q "file.txt"; then
+    pass "Archive collect for .zip format"
+else
+    fail "Archive collect for .zip format" "unzip -l should list file.txt" "$(unzip -l $OUTPUT_ZIP 2>&1)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_ZIP"
+
+# Test: --out - with archive-format tar streams to stdout
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "stream content" > "$COLLECT_TMPDIR/src/data.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/data.txt\",\"to\":\"data.txt\"}]}}"
+TAR_LIST=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out - --type archive --archive-format tar 2>/dev/null | tar -tf -)
+if echo "$TAR_LIST" | grep -q "data.txt"; then
+    pass "--out - with archive-format tar streams to stdout"
+else
+    fail "--out - streaming" "tar -tf - should list data.txt" "$TAR_LIST"
+fi
+rm -rf "$COLLECT_TMPDIR"
+
+# Test: --config with inline JSON works
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "config inline" > "$COLLECT_TMPDIR/src/file.txt"
+OUTPUT_DIR=$(mktemp -d)
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}"
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+if [[ -f "$OUTPUT_DIR/file.txt" ]]; then
+    pass "--config with inline JSON works"
+else
+    fail "--config inline JSON" "file.txt created" "$(ls -la $OUTPUT_DIR)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: --config-file with file path works
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "config file" > "$COLLECT_TMPDIR/src/file.txt"
+CONFIG_FILE=$(mktemp --suffix=.json)
+echo "{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}" > "$CONFIG_FILE"
+OUTPUT_DIR=$(mktemp -d)
+"$SHCLAP" collect --config-file "$CONFIG_FILE" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+if [[ -f "$OUTPUT_DIR/file.txt" ]]; then
+    pass "--config-file with file path works"
+else
+    fail "--config-file" "file.txt created" "$(ls -la $OUTPUT_DIR)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR" "$CONFIG_FILE"
+
+# Test: --config and --config-file together exits non-zero
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+CONFIG_FILE=$(mktemp --suffix=.json)
+echo "{\"bundles\":{\"default\":[]}}" > "$CONFIG_FILE"
+OUTPUT_DIR=$(mktemp -d)
+if ! "$SHCLAP" collect --config '{"bundles":{}}' --config-file "$CONFIG_FILE" --out "$OUTPUT_DIR" --type dir 2>/dev/null; then
+    pass "--config and --config-file together exits non-zero"
+else
+    fail "--config and --config-file mutual exclusion" "should exit non-zero" "command succeeded"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR" "$CONFIG_FILE"
+
+# Test: Neither --config nor --config-file exits non-zero
+run_test
+OUTPUT_DIR=$(mktemp -d)
+ERROR_FILE=$("$SHCLAP" collect --out "$OUTPUT_DIR" --type dir 2>&1)
+if [[ -f "$ERROR_FILE" ]] && grep -q "either --config or --config-file must be supplied" "$ERROR_FILE"; then
+    pass "Neither --config nor --config-file exits non-zero"
+else
+    fail "Missing config requirement" "error file with config message" "got $ERROR_FILE"
+fi
+rm -rf "$OUTPUT_DIR" "$ERROR_FILE" 2>/dev/null || true
+
+# Test: Env var ${BUILD_DIR}/bin/foo with BUILD_DIR set resolves and copies correctly
+run_test
+REAL_BUILD_DIR=$(mktemp -d)
+mkdir -p "$REAL_BUILD_DIR/bin"
+echo "binary content" > "$REAL_BUILD_DIR/bin/foo"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"\${BUILD_DIR}/bin/foo\",\"to\":\"foo\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+(export BUILD_DIR="$REAL_BUILD_DIR"; "$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null)
+if [[ -f "$OUTPUT_DIR/foo" ]] && grep -q "binary content" "$OUTPUT_DIR/foo"; then
+    pass "Env var \${BUILD_DIR}/bin/foo with BUILD_DIR set resolves and copies correctly"
+else
+    fail "Env var expansion" "foo with 'binary content'" "$(ls -la $OUTPUT_DIR)"
+fi
+rm -rf "$REAL_BUILD_DIR" "$OUTPUT_DIR"
+
+# Test: Glob **/*.log collects files at nested depths
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src/level1/level2"
+echo "log content 1" > "$COLLECT_TMPDIR/src/root.log"
+echo "log content 2" > "$COLLECT_TMPDIR/src/level1/nested.log"
+echo "log content 3" > "$COLLECT_TMPDIR/src/level1/level2/deep.log"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/**/*.log\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+FILE_COUNT=$(find "$OUTPUT_DIR" -name "*.log" -type f | wc -l)
+if [[ $FILE_COUNT -eq 3 ]]; then
+    pass "Glob \*\*/\*.log collects files at nested depths"
+else
+    fail "Glob nested collection" "3 log files collected" "found $FILE_COUNT files"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: Bundle filtering collects specified bundles only
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "binary" > "$COLLECT_TMPDIR/src/app"
+echo "logs" > "$COLLECT_TMPDIR/src/app.log"
+echo "config" > "$COLLECT_TMPDIR/src/config.yaml"
+COLLECT_CONFIG="{\"bundles\":{\"binaries\":[{\"from\":\"$COLLECT_TMPDIR/src/app\",\"to\":\"app\"}],\"logs\":[{\"from\":\"$COLLECT_TMPDIR/src/app.log\",\"to\":\"app.log\"}],\"configs\":[{\"from\":\"$COLLECT_TMPDIR/src/config.yaml\",\"to\":\"config.yaml\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir --bundle binaries --bundle logs 2>/dev/null
+if [[ -f "$OUTPUT_DIR/app" ]] && [[ -f "$OUTPUT_DIR/app.log" ]] && [[ ! -f "$OUTPUT_DIR/config.yaml" ]]; then
+    pass "--bundle binaries --bundle logs collects those two bundles; third bundle absent"
+else
+    fail "Bundle filtering" "app and app.log present, config.yaml absent" "$(find $OUTPUT_DIR -type f)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: Two entries resolving to same destination uses last-wins
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "first content" > "$COLLECT_TMPDIR/src/file1.txt"
+echo "second content" > "$COLLECT_TMPDIR/src/file2.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file1.txt\",\"to\":\"same.txt\"},{\"from\":\"$COLLECT_TMPDIR/src/file2.txt\",\"to\":\"same.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+if [[ -f "$OUTPUT_DIR/same.txt" ]] && grep -q "second content" "$OUTPUT_DIR/same.txt"; then
+    pass "Two entries resolving to same destination uses last-wins"
+else
+    fail "Collision last-wins" "same.txt with 'second content'" "$(cat $OUTPUT_DIR/same.txt 2>&1)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: Stdout is exactly the output path with no extra output
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+echo "content" > "$COLLECT_TMPDIR/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+STDOUT_OUTPUT=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null)
+if [[ "$STDOUT_OUTPUT" == "$OUTPUT_DIR" ]]; then
+    pass "Stdout is exactly the output path with no extra output"
+else
+    fail "Stdout contract" "exactly '$OUTPUT_DIR'" "got '$STDOUT_OUTPUT'"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: SHCLAP_LOG=off silences INFO lines but preserves stdout
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+echo "content" > "$COLLECT_TMPDIR/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+FULL_OUTPUT=$(SHCLAP_LOG=off "$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>&1)
+if [[ ! "$FULL_OUTPUT" =~ "INFO:" ]] && [[ "$FULL_OUTPUT" == "$OUTPUT_DIR" ]]; then
+    pass "SHCLAP_LOG=off silences INFO lines but preserves stdout"
+else
+    fail "SHCLAP_LOG=off" "no INFO, stdout is path" "got '$FULL_OUTPUT'"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: Symlink from source resolves to regular file
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "symlink target" > "$COLLECT_TMPDIR/src/target.txt"
+ln -s "$COLLECT_TMPDIR/src/target.txt" "$COLLECT_TMPDIR/src/link.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/link.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+if [[ -f "$OUTPUT_DIR/file.txt" ]] && [[ ! -L "$OUTPUT_DIR/file.txt" ]]; then
+    pass "Symlink from source resolves to regular file"
+else
+    fail "Symlink dereference" "regular file (not symlink)" "$(ls -la $OUTPUT_DIR/file.txt)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: SHCLAP_IN_CONTAINER=1 doesn't affect collect behavior
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+echo "content" > "$COLLECT_TMPDIR/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+SHCLAP_IN_CONTAINER=1 "$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+if [[ -f "$OUTPUT_DIR/file.txt" ]]; then
+    pass "SHCLAP_IN_CONTAINER=1 collect runs identically"
+else
+    fail "Container transparency" "file.txt created" "$(ls -la $OUTPUT_DIR)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
 #
 # Summary
 #
