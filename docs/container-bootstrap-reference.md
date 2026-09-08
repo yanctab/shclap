@@ -199,7 +199,7 @@ $ ./script.sh --flag value
 $ docker run -it --rm myimage ./script.sh --flag value
 # Docker runtime created /.dockerenv
 # shclap detects /.dockerenv (runtime signal)
-# → emits stderr message: "shclap: already inside container (via /.dockerenv) — skipping bootstrap"
+# → emits stderr message: "shclap: container detected via /.dockerenv, skipping reexec"
 # → skips bootstrap (already in container)
 # → proceeds with normal parsing
 ```
