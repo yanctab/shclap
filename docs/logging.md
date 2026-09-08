@@ -91,6 +91,23 @@ export SHCLAP_LOG_STYLE=never
 log_info "Plain text message" > logfile.txt
 ```
 
+An unrecognized value falls back to `auto`.
+
+### NO_COLOR
+
+Under `auto`, a non-empty [`NO_COLOR`](https://no-color.org/) environment
+variable also suppresses color, even on a terminal. An empty value does not
+count as set.
+
+`SHCLAP_LOG_STYLE=always` is an explicit request and overrides `NO_COLOR`:
+
+```bash
+export NO_COLOR=1
+log_info "Plain, even on a terminal"
+
+SHCLAP_LOG_STYLE=always log_info "Colored; explicit setting wins"
+```
+
 ## The `shclap log` Subcommand
 
 You can also call `shclap log` directly without using the helper functions:

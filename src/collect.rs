@@ -229,6 +229,265 @@ fn write_archive(
     Ok(())
 }
 
+/// Run the collection engine: copy matched files from config to destination.
+pub fn run(
+    config: CollectConfig,
+    out: &str,
+    output_type: OutputType,
+    archive_format: Option<ArchiveFormat>,
+    bundles: &[String],
+) -> anyhow::Result<()> {
+    use crate::expand::expand;
+    use anyhow::Context;
+    use std::fs;
+    use std::path::Path;
+
+    // Initialize logging
+    crate::logging::init_once();
+
+    // For archive output, prepare file pairs. For directory output, create output directory.
+    let mut file_pairs: Vec<(String, String)> = Vec::new();
+
+    if output_type == OutputType::Archive && out != "-" {
+        // For archive output to a file, we'll collect pairs and write at the end
+    } else if output_type == OutputType::Dir {
+        // Create output directory for dir output
+        fs::create_dir_all(out).context("failed to create output directory")?;
+    }
+    // For archive output to stdout, file pairs will be used directly at the end
+
+    // If bundles selector is non-empty, validate all names exist in config
+    if !bundles.is_empty() {
+        for bundle_name in bundles {
+            if !config.bundles.contains_key(bundle_name) {
+                return Err(anyhow::anyhow!("unknown bundle name: {}", bundle_name));
+            }
+        }
+    }
+
+    // Determine which bundles to process
+    let bundles_to_process: Vec<&String> = if bundles.is_empty() {
+        // If no selector, process all bundles in config
+        config.bundles.keys().collect()
+    } else {
+        // If selector provided, only process those bundles (in config order)
+        config
+            .bundles
+            .keys()
+            .filter(|k| bundles.contains(k))
+            .collect()
+    };
+
+    // Process each requested bundle
+    for bundle_name in bundles_to_process {
+        if let Some(entries) = config.bundles.get(bundle_name) {
+            for entry in entries {
+                // Extract from and to paths
+                let (from_raw, to_opt, optional) = match entry {
+                    Entry::Bare(path) => (path.clone(), None, false),
+                    Entry::Object(obj) => (obj.from.clone(), obj.to.clone(), obj.optional),
+                };
+
+                // Expand environment variables in from
+                let from = match expand(&from_raw, |name| std::env::var(name).ok()) {
+                    Ok(expanded) => expanded,
+                    Err(e) => {
+                        if optional {
+                            continue;
+                        }
+                        return Err(anyhow::anyhow!("{}", e));
+                    }
+                };
+
+                // Check if this is a glob pattern
+                if has_glob_metacharacters(&from) {
+                    // Resolve glob pattern
+                    let matches = match resolve_glob_pattern(&from) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            if optional {
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                    };
+
+                    // Handle zero matches
+                    if matches.is_empty() {
+                        if optional {
+                            continue;
+                        }
+                        return Err(anyhow::anyhow!("glob pattern matched zero files: {}", from));
+                    }
+
+                    // Handle multi-match with non-trailing-slash to
+                    if matches.len() > 1 {
+                        if let Some(to) = &to_opt {
+                            if !to.ends_with('/') {
+                                return Err(anyhow::anyhow!(
+                                    "multiple matches for glob pattern with non-trailing-slash 'to': {}",
+                                    from
+                                ));
+                            }
+                        }
+                    }
+
+                    // Process each match
+                    for matched_file in matches {
+                        // Check if source is a directory
+                        if Path::new(&matched_file).is_dir() {
+                            return Err(anyhow::anyhow!(
+                                "'{}' is a directory; use '{}/**/*' to include contents",
+                                matched_file,
+                                matched_file
+                            ));
+                        }
+
+                        let to_path = if let Some(to) = &to_opt {
+                            // Expand environment variables in to
+                            let expanded_to = expand(to, |name| std::env::var(name).ok())
+                                .context("failed to expand 'to' path")?;
+
+                            if expanded_to.ends_with('/') {
+                                // Use basename under directory
+                                let basename = Path::new(&matched_file)
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!(
+                                            "cannot determine basename: {}",
+                                            matched_file
+                                        )
+                                    })?;
+                                format!("{}{}", expanded_to, basename)
+                            } else {
+                                // Use exact path (should only be single match)
+                                expanded_to
+                            }
+                        } else {
+                            // Use source filename as destination
+                            Path::new(&matched_file)
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .map(|s| s.to_string())
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!("cannot determine destination filename")
+                                })?
+                        };
+
+                        // Validate destination path safety
+                        validate_to_path(&to_path)?;
+
+                        if output_type == OutputType::Archive {
+                            // For archive output, collect the pair
+                            file_pairs.push((matched_file.clone(), to_path.clone()));
+                            log::info!("collected {} -> {}", matched_file, to_path);
+                        } else {
+                            // For directory output, copy the file
+                            let dest_full_path = Path::new(out).join(&to_path);
+
+                            // Create parent directories if needed
+                            if let Some(parent) = dest_full_path.parent() {
+                                fs::create_dir_all(parent)
+                                    .context("failed to create parent directory")?;
+                            }
+
+                            // Copy the file
+                            fs::copy(&matched_file, &dest_full_path)
+                                .context("failed to copy file")?;
+
+                            // Log the collection
+                            log::info!("collected {} -> {}", matched_file, to_path);
+                        }
+                    }
+                } else {
+                    // Non-glob path: use existing logic
+                    // Check if source exists
+                    if !Path::new(&from).exists() {
+                        if optional {
+                            continue;
+                        }
+                        return Err(anyhow::anyhow!("source file not found: {}", from));
+                    }
+
+                    // Check if source is a directory
+                    if Path::new(&from).is_dir() {
+                        return Err(anyhow::anyhow!(
+                            "'{}' is a directory; use '{}/**/*' to include contents",
+                            from,
+                            from
+                        ));
+                    }
+
+                    // Determine destination
+                    let to_path = if let Some(to) = to_opt {
+                        // Expand environment variables in to
+                        expand(&to, |name| std::env::var(name).ok())
+                            .context("failed to expand 'to' path")?
+                    } else {
+                        // Use source filename as destination
+                        Path::new(&from)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|s| s.to_string())
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("cannot determine destination filename")
+                            })?
+                    };
+
+                    // Validate destination path safety
+                    validate_to_path(&to_path)?;
+
+                    if output_type == OutputType::Archive {
+                        // For archive output, collect the pair
+                        file_pairs.push((from.clone(), to_path.clone()));
+                        log::info!("collected {} -> {}", from, to_path);
+                    } else {
+                        // For directory output, copy the file
+                        let dest_full_path = Path::new(out).join(&to_path);
+
+                        // Create parent directories if needed
+                        if let Some(parent) = dest_full_path.parent() {
+                            fs::create_dir_all(parent)
+                                .context("failed to create parent directory")?;
+                        }
+
+                        // Copy the file
+                        fs::copy(&from, &dest_full_path).context("failed to copy file")?;
+
+                        // Log the collection
+                        log::info!("collected {} -> {}", from, to_path);
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle archive output
+    if output_type == OutputType::Archive {
+        // Detect format from extension or use provided format
+        let format = if let Some(fmt) = archive_format {
+            fmt
+        } else {
+            detect_format_from_extension(out)?
+        };
+
+        write_archive(format, out, &file_pairs)?;
+    }
+
+    // Report where the output landed. With `--out -` the archive itself is the
+    // stdout stream, so echoing the path there would append "-\n" to the archive
+    // bytes; `gzip -t` rejects the result as trailing garbage. Name the
+    // destination on stderr instead, keeping stdout byte-exact.
+    if out == "-" {
+        log::info!("wrote archive to stdout");
+    } else {
+        println!("{}", out);
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,7 +534,7 @@ mod tests {
             Entry::Object(obj) => {
                 assert_eq!(obj.from, "/src");
                 assert_eq!(obj.to, Some("/dst".to_string()));
-                assert_eq!(obj.optional, true);
+                assert!(obj.optional);
             }
             _ => panic!("Expected object entry"),
         }
@@ -303,7 +562,7 @@ mod tests {
         let json = r#"{"bundles": {"test": [{"from": "/src"}]}}"#;
         let config: CollectConfig = serde_json::from_str(json).expect("Failed to deserialize");
         match &config.bundles["test"][0] {
-            Entry::Object(obj) => assert_eq!(obj.optional, false),
+            Entry::Object(obj) => assert!(!obj.optional),
             _ => panic!("Expected object entry"),
         }
     }
@@ -1529,7 +1788,7 @@ mod tests {
 
         // Use std command to list contents
         let output = std::process::Command::new("tar")
-            .args(&["-tf", out_archive.to_str().unwrap()])
+            .args(["-tf", out_archive.to_str().unwrap()])
             .output()
             .expect("Failed to run tar -tf");
 
@@ -1594,7 +1853,7 @@ mod tests {
 
         // Use std command to list contents
         let output = std::process::Command::new("tar")
-            .args(&["-tzf", out_archive.to_str().unwrap()])
+            .args(["-tzf", out_archive.to_str().unwrap()])
             .output()
             .expect("Failed to run tar -tzf");
 
@@ -1659,7 +1918,7 @@ mod tests {
 
         // Use std command to list contents
         let output = std::process::Command::new("tar")
-            .args(&["-tzf", out_archive.to_str().unwrap()])
+            .args(["-tzf", out_archive.to_str().unwrap()])
             .output()
             .expect("Failed to run tar -tzf");
 
@@ -1724,7 +1983,7 @@ mod tests {
 
         // Use std command to list contents
         let output = std::process::Command::new("unzip")
-            .args(&["-l", out_archive.to_str().unwrap()])
+            .args(["-l", out_archive.to_str().unwrap()])
             .output()
             .expect("Failed to run unzip -l");
 
@@ -1789,7 +2048,7 @@ mod tests {
 
         // Use std command to list contents
         let output = std::process::Command::new("tar")
-            .args(&["-tf", out_archive.to_str().unwrap()])
+            .args(["-tf", out_archive.to_str().unwrap()])
             .output()
             .expect("Failed to run tar -tf");
 
@@ -2072,7 +2331,7 @@ mod tests {
 
         // Use std command to list contents
         let output = std::process::Command::new("tar")
-            .args(&["-tf", out_archive.to_str().unwrap()])
+            .args(["-tf", out_archive.to_str().unwrap()])
             .output()
             .expect("Failed to run tar -tf");
 
@@ -2086,263 +2345,4 @@ mod tests {
             "archive should contain symlink.txt"
         );
     }
-}
-
-/// Run the collection engine: copy matched files from config to destination.
-pub fn run(
-    config: CollectConfig,
-    out: &str,
-    output_type: OutputType,
-    archive_format: Option<ArchiveFormat>,
-    bundles: &[String],
-) -> anyhow::Result<()> {
-    use crate::expand::expand;
-    use anyhow::Context;
-    use std::fs;
-    use std::path::Path;
-
-    // Initialize logging
-    crate::logging::init_once();
-
-    // For archive output, prepare file pairs. For directory output, create output directory.
-    let mut file_pairs: Vec<(String, String)> = Vec::new();
-
-    if output_type == OutputType::Archive && out != "-" {
-        // For archive output to a file, we'll collect pairs and write at the end
-    } else if output_type == OutputType::Dir {
-        // Create output directory for dir output
-        fs::create_dir_all(out).context("failed to create output directory")?;
-    }
-    // For archive output to stdout, file pairs will be used directly at the end
-
-    // If bundles selector is non-empty, validate all names exist in config
-    if !bundles.is_empty() {
-        for bundle_name in bundles {
-            if !config.bundles.contains_key(bundle_name) {
-                return Err(anyhow::anyhow!("unknown bundle name: {}", bundle_name));
-            }
-        }
-    }
-
-    // Determine which bundles to process
-    let bundles_to_process: Vec<&String> = if bundles.is_empty() {
-        // If no selector, process all bundles in config
-        config.bundles.keys().collect()
-    } else {
-        // If selector provided, only process those bundles (in config order)
-        config
-            .bundles
-            .keys()
-            .filter(|k| bundles.contains(k))
-            .collect()
-    };
-
-    // Process each requested bundle
-    for bundle_name in bundles_to_process {
-        if let Some(entries) = config.bundles.get(bundle_name) {
-            for entry in entries {
-                // Extract from and to paths
-                let (from_raw, to_opt, optional) = match entry {
-                    Entry::Bare(path) => (path.clone(), None, false),
-                    Entry::Object(obj) => (obj.from.clone(), obj.to.clone(), obj.optional),
-                };
-
-                // Expand environment variables in from
-                let from = match expand(&from_raw, |name| std::env::var(name).ok()) {
-                    Ok(expanded) => expanded,
-                    Err(e) => {
-                        if optional {
-                            continue;
-                        }
-                        return Err(anyhow::anyhow!("{}", e));
-                    }
-                };
-
-                // Check if this is a glob pattern
-                if has_glob_metacharacters(&from) {
-                    // Resolve glob pattern
-                    let matches = match resolve_glob_pattern(&from) {
-                        Ok(m) => m,
-                        Err(e) => {
-                            if optional {
-                                continue;
-                            }
-                            return Err(e);
-                        }
-                    };
-
-                    // Handle zero matches
-                    if matches.is_empty() {
-                        if optional {
-                            continue;
-                        }
-                        return Err(anyhow::anyhow!("glob pattern matched zero files: {}", from));
-                    }
-
-                    // Handle multi-match with non-trailing-slash to
-                    if matches.len() > 1 {
-                        if let Some(to) = &to_opt {
-                            if !to.ends_with('/') {
-                                return Err(anyhow::anyhow!(
-                                    "multiple matches for glob pattern with non-trailing-slash 'to': {}",
-                                    from
-                                ));
-                            }
-                        }
-                    }
-
-                    // Process each match
-                    for matched_file in matches {
-                        // Check if source is a directory
-                        if Path::new(&matched_file).is_dir() {
-                            return Err(anyhow::anyhow!(
-                                "'{}' is a directory; use '{}/**/*' to include contents",
-                                matched_file,
-                                matched_file
-                            ));
-                        }
-
-                        let to_path = if let Some(to) = &to_opt {
-                            // Expand environment variables in to
-                            let expanded_to = expand(to, |name| std::env::var(name).ok())
-                                .context("failed to expand 'to' path")?;
-
-                            if expanded_to.ends_with('/') {
-                                // Use basename under directory
-                                let basename = Path::new(&matched_file)
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .ok_or_else(|| {
-                                        anyhow::anyhow!(
-                                            "cannot determine basename: {}",
-                                            matched_file
-                                        )
-                                    })?;
-                                format!("{}{}", expanded_to, basename)
-                            } else {
-                                // Use exact path (should only be single match)
-                                expanded_to
-                            }
-                        } else {
-                            // Use source filename as destination
-                            Path::new(&matched_file)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .map(|s| s.to_string())
-                                .ok_or_else(|| {
-                                    anyhow::anyhow!("cannot determine destination filename")
-                                })?
-                        };
-
-                        // Validate destination path safety
-                        validate_to_path(&to_path)?;
-
-                        if output_type == OutputType::Archive {
-                            // For archive output, collect the pair
-                            file_pairs.push((matched_file.clone(), to_path.clone()));
-                            log::info!("collected {} -> {}", matched_file, to_path);
-                        } else {
-                            // For directory output, copy the file
-                            let dest_full_path = Path::new(out).join(&to_path);
-
-                            // Create parent directories if needed
-                            if let Some(parent) = dest_full_path.parent() {
-                                fs::create_dir_all(parent)
-                                    .context("failed to create parent directory")?;
-                            }
-
-                            // Copy the file
-                            fs::copy(&matched_file, &dest_full_path)
-                                .context("failed to copy file")?;
-
-                            // Log the collection
-                            log::info!("collected {} -> {}", matched_file, to_path);
-                        }
-                    }
-                } else {
-                    // Non-glob path: use existing logic
-                    // Check if source exists
-                    if !Path::new(&from).exists() {
-                        if optional {
-                            continue;
-                        }
-                        return Err(anyhow::anyhow!("source file not found: {}", from));
-                    }
-
-                    // Check if source is a directory
-                    if Path::new(&from).is_dir() {
-                        return Err(anyhow::anyhow!(
-                            "'{}' is a directory; use '{}/**/*' to include contents",
-                            from,
-                            from
-                        ));
-                    }
-
-                    // Determine destination
-                    let to_path = if let Some(to) = to_opt {
-                        // Expand environment variables in to
-                        expand(&to, |name| std::env::var(name).ok())
-                            .context("failed to expand 'to' path")?
-                    } else {
-                        // Use source filename as destination
-                        Path::new(&from)
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| {
-                                anyhow::anyhow!("cannot determine destination filename")
-                            })?
-                    };
-
-                    // Validate destination path safety
-                    validate_to_path(&to_path)?;
-
-                    if output_type == OutputType::Archive {
-                        // For archive output, collect the pair
-                        file_pairs.push((from.clone(), to_path.clone()));
-                        log::info!("collected {} -> {}", from, to_path);
-                    } else {
-                        // For directory output, copy the file
-                        let dest_full_path = Path::new(out).join(&to_path);
-
-                        // Create parent directories if needed
-                        if let Some(parent) = dest_full_path.parent() {
-                            fs::create_dir_all(parent)
-                                .context("failed to create parent directory")?;
-                        }
-
-                        // Copy the file
-                        fs::copy(&from, &dest_full_path).context("failed to copy file")?;
-
-                        // Log the collection
-                        log::info!("collected {} -> {}", from, to_path);
-                    }
-                }
-            }
-        }
-    }
-
-    // Handle archive output
-    if output_type == OutputType::Archive {
-        // Detect format from extension or use provided format
-        let format = if let Some(fmt) = archive_format {
-            fmt
-        } else {
-            detect_format_from_extension(out)?
-        };
-
-        write_archive(format, out, &file_pairs)?;
-    }
-
-    // Report where the output landed. With `--out -` the archive itself is the
-    // stdout stream, so echoing the path there would append "-\n" to the archive
-    // bytes; `gzip -t` rejects the result as trailing garbage. Name the
-    // destination on stderr instead, keeping stdout byte-exact.
-    if out == "-" {
-        log::info!("wrote archive to stdout");
-    } else {
-        println!("{}", out);
-    }
-
-    Ok(())
 }

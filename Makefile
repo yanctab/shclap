@@ -98,9 +98,9 @@ fmt:
 fmt-check:
 	$(CARGO) fmt --check
 
-## lint - Run clippy linter
+## lint - Run clippy linter (including tests and other targets)
 lint:
-	$(CARGO) clippy -- -D warnings
+	$(CARGO) clippy --all-targets --all-features -- -D warnings
 
 ## check - Run fmt, lint, and test
 check: fmt lint test

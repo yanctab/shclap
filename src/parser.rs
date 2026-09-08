@@ -969,7 +969,7 @@ mod tests {
         config.validate().unwrap();
         // Without env var set and no CLI arg, value should be absent
         let result = unwrap_success_full(parse_args(&config, &to_args(&[]), get_name(&config)));
-        assert!(result.values.get("input").is_none());
+        assert!(!result.values.contains_key("input"));
     }
 
     #[test]

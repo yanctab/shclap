@@ -385,6 +385,21 @@ When subcommands are used, the selected subcommand is exported:
 .RS
 export SHCLAP_SUBCOMMAND=\(aqinit\(aq
 .RE
+.SH ENVIRONMENT
+.TP
+.B SHCLAP_LOG
+Minimum log level: trace, debug, info (default), warn, error, or off.
+.TP
+.B SHCLAP_LOG_STYLE
+Color style: auto (default), always, or never. An unrecognized value falls
+back to auto. Under auto, color is used only when stderr is a terminal.
+.TP
+.B NO_COLOR
+When set to a non-empty value, suppresses color under
+.BR SHCLAP_LOG_STYLE=auto ,
+following the no-color.org convention. An explicit
+.B SHCLAP_LOG_STYLE=always
+overrides it.
 .SH BUILT-IN FLAGS
 The following flags are automatically handled by shclap during parsing:
 .TP
