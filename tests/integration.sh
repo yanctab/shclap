@@ -1987,6 +1987,101 @@ fi
 
 rm -rf "$STREAM_TMPDIR"
 
+section "24. Shell Variable Name Validation"
+
+# Test: a name that cannot form an identifier is rejected at config time
+run_test
+# A value is supplied so that, without validation, an export line is actually
+# emitted and bash is the one that rejects it. Otherwise the case is vacuous.
+OUTPUT=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"my.opt","type":"option"}]}' --script "$0" -- --my.opt=x)
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "not a valid shell variable name"; then
+    pass "Invalid argument name is rejected with a config error"
+else
+    fail "Invalid arg name" "config error about shell variable name" "$ERROR_OUTPUT"
+fi
+
+# Test: the failure is a clean shclap error, not a shell syntax error
+run_test
+if ! echo "$ERROR_OUTPUT" | grep -q "not a valid identifier"; then
+    pass "Failure is reported by shclap, not by bash at source time"
+else
+    fail "Error source" "shclap error" "bash identifier error: $ERROR_OUTPUT"
+fi
+
+# Test: two names collapsing to one variable are rejected
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"my-opt","type":"option"},{"name":"my_opt","type":"option"}]}' --script "$0" -- --my-opt=a --my_opt=b)
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "both map to the shell variable"; then
+    pass "Colliding argument names are rejected"
+else
+    fail "Name collision" "collision error" "$ERROR_OUTPUT"
+fi
+
+# Test: an invalid prefix from the config is rejected
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"name":"test","prefix":"MY-APP_","args":[{"name":"v","short":"v","type":"flag"}]}' --script "$0" -- )
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "not a valid shell variable prefix"; then
+    pass "Invalid config prefix is rejected"
+else
+    fail "Invalid config prefix" "prefix error" "$ERROR_OUTPUT"
+fi
+
+# Test: an invalid prefix from --prefix is rejected (it overrides the config)
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"v","short":"v","type":"flag"}]}' --script "$0" --prefix 'BAD-PFX_' -- -v)
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "not a valid shell variable prefix"; then
+    pass "Invalid --prefix is rejected"
+else
+    fail "Invalid CLI prefix" "prefix error" "$ERROR_OUTPUT"
+fi
+
+# Test: an argument named subcommand would clobber the reported subcommand
+run_test
+OUTPUT=$("$SHCLAP" parse --config '{"schema_version":2,"name":"test","args":[{"name":"subcommand","type":"option"}],"subcommands":[{"name":"init"}]}' --script "$0" -- )
+ERROR_OUTPUT=$(bash -c "source '$OUTPUT'" 2>&1) || true
+if echo "$ERROR_OUTPUT" | grep -q "report the selected subcommand"; then
+    pass "Argument clashing with SUBCOMMAND is rejected"
+else
+    fail "SUBCOMMAND clash" "reserved variable error" "$ERROR_OUTPUT"
+fi
+
+# Test: help and version reject the same configs (validation is shared)
+run_test
+VALIDATION_PATHS=""
+for SUB in help version; do
+    SUB_OUT=$("$SHCLAP" "$SUB" --config '{"name":"test","args":[{"name":"my.opt","type":"option"}]}' 2>&1) && RC=0 || RC=$?
+    if [[ "$RC" -ne 1 ]] || ! echo "$SUB_OUT" | grep -q "not a valid shell variable name"; then
+        VALIDATION_PATHS="$VALIDATION_PATHS $SUB(rc=$RC)"
+    fi
+done
+if [[ -z "$VALIDATION_PATHS" ]]; then
+    pass "help and version reject invalid variable names too"
+else
+    fail "Shared validation" "clean rc=1 error" "failed:$VALIDATION_PATHS"
+fi
+
+# Test: a leading digit stays valid under a non-empty prefix
+run_test
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"2fast","long":"2fast","type":"option"}]}' --script "$0" -- --2fast quick)"
+if [[ "${SHCLAP_2FAST:-}" == "quick" ]]; then
+    pass "Leading-digit name still works under the default prefix"
+else
+    fail "Leading digit" "quick" "${SHCLAP_2FAST:-<unset>}"
+fi
+
+# Test: ordinary names are unaffected
+run_test
+source "$("$SHCLAP" parse --config '{"name":"test","args":[{"name":"my-opt","long":"my-opt","type":"option"},{"name":"_private","long":"private","type":"option"}]}' --script "$0" -- --my-opt a --private b)"
+if [[ "$SHCLAP_MY_OPT" == "a" && "$SHCLAP__PRIVATE" == "b" ]]; then
+    pass "Hyphenated and underscore-leading names still work"
+else
+    fail "Valid names" "a / b" "$SHCLAP_MY_OPT / ${SHCLAP__PRIVATE:-<unset>}"
+fi
+
 #
 # Summary
 #

@@ -139,6 +139,14 @@ fn main() -> Result<()> {
 
             let effective_prefix = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
 
+            // load_config validated against the config's own prefix; --prefix
+            // replaces it, so the composed variable names have to be rechecked.
+            if prefix.is_some() {
+                if let Err(e) = cfg.validate_variables(effective_prefix) {
+                    return output_error(&e.to_string());
+                }
+            }
+
             // Parse args first so that --help / --version outcomes bypass container dispatch.
             let parse_outcome = parse_args(&cfg, &args, &effective_name);
 
@@ -228,6 +236,11 @@ fn main() -> Result<()> {
                 load_config(&config, name.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
 
             let effective_prefix = prefix.as_deref().unwrap_or_else(|| cfg.effective_prefix());
+
+            if prefix.is_some() {
+                cfg.validate_variables(effective_prefix)
+                    .map_err(|e| anyhow::anyhow!(e))?;
+            }
 
             println!(
                 "{}",
