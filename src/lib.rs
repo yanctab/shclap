@@ -13,6 +13,9 @@ pub mod logging;
 pub mod output;
 pub mod parser;
 
+pub use collect::{
+    run as collect_run, ArchiveFormat, CollectConfig, Entry, EntryObject, OutputType,
+};
 pub use config::{
     ArgConfig, ArgType, Config, ConfigError, ContainerConfig, PullPolicy, SubcommandConfig,
     MAX_SCHEMA_VERSION, MIN_SCHEMA_VERSION,

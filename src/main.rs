@@ -91,6 +91,33 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         message: Vec<String>,
     },
+
+    /// Collect files according to configuration
+    Collect {
+        /// JSON configuration (mutually exclusive with --config-file)
+        #[arg(long, conflicts_with = "config_file")]
+        config: Option<String>,
+
+        /// Path to configuration file (mutually exclusive with --config)
+        #[arg(long, conflicts_with = "config")]
+        config_file: Option<std::path::PathBuf>,
+
+        /// Output destination path
+        #[arg(long)]
+        out: String,
+
+        /// Output type (dir or archive)
+        #[arg(long, value_name = "TYPE")]
+        r#type: shclap::collect::OutputType,
+
+        /// Archive format (tar, tar.gz, zip) - only when type is archive
+        #[arg(long)]
+        archive_format: Option<shclap::collect::ArchiveFormat>,
+
+        /// Bundle names to collect (can be specified multiple times)
+        #[arg(long, value_name = "BUNDLE")]
+        bundle: Vec<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -272,6 +299,35 @@ fn main() -> Result<()> {
         }
         Commands::Log { level, message } => {
             logging::run(&level, &message)?;
+        }
+        Commands::Collect {
+            config,
+            config_file,
+            out,
+            r#type,
+            archive_format,
+            bundle,
+        } => {
+            // Validate that exactly one of --config or --config-file is supplied
+            let config_json = match (&config, &config_file) {
+                (Some(_), Some(_)) => {
+                    return output_error("--config and --config-file are mutually exclusive");
+                }
+                (None, None) => {
+                    return output_error("either --config or --config-file must be supplied");
+                }
+                (Some(c), None) => c.clone(),
+                (None, Some(f)) => {
+                    std::fs::read_to_string(f).context("failed to read config file")?
+                }
+            };
+
+            // Parse the config JSON
+            let collect_config: shclap::collect::CollectConfig =
+                serde_json::from_str(&config_json).context("failed to parse collect config")?;
+
+            // Run the collection engine
+            shclap::collect::run(collect_config, &out, r#type, archive_format, &bundle)?;
         }
     }
 
