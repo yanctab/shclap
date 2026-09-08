@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "shclap"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "bzip2 0.6.1",
