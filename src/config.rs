@@ -69,6 +69,22 @@ pub enum ConfigError {
     #[error("'pull_policy' must be nested under 'container', not at the top level")]
     TopLevelPullPolicy,
 
+    #[error("argument '{name}' maps to '{var}', which is not a valid shell variable name: use letters, digits, hyphens and underscores, and do not start with a digit")]
+    InvalidVariableName { name: String, var: String },
+
+    #[error("prefix '{0}' is not a valid shell variable prefix: use letters, digits and underscores, starting with a letter or underscore")]
+    InvalidPrefix(String),
+
+    #[error("arguments '{first}' and '{second}' both map to the shell variable '{var}'")]
+    VariableNameCollision {
+        first: String,
+        second: String,
+        var: String,
+    },
+
+    #[error("argument '{name}' maps to '{var}', which shclap also uses to report the selected subcommand")]
+    ReservedSubcommandVariable { name: String, var: String },
+
     #[error("failed to expand variable in field '{field}': {source}")]
     ExpandError { field: String, source: ExpandError },
 }
@@ -311,6 +327,25 @@ pub struct Config {
     pub(crate) pull_policy_sentinel: Option<String>,
 }
 
+/// Convert an argument name to the shell variable name it will be exported as.
+///
+/// Uppercases and turns hyphens into underscores. This lives here, next to the
+/// validation that depends on it, so the rule cannot drift from the emitter in
+/// `output.rs`.
+pub fn to_shell_var_name(name: &str) -> String {
+    name.to_uppercase().replace('-', "_")
+}
+
+/// Is this a name the shell will accept on the left of an assignment?
+fn is_valid_shell_identifier(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 impl Config {
     /// Parse a JSON string into a Config.
     pub fn from_json(json: &str) -> Result<Config, ConfigError> {
@@ -391,6 +426,73 @@ impl Config {
                     Self::validate_arg(arg, self.schema_version)?;
                 }
             }
+        }
+
+        // Checked last so the more specific errors above win when both apply.
+        self.validate_variables(self.effective_prefix())?;
+
+        Ok(())
+    }
+
+    /// Check that every argument yields a distinct, usable shell variable.
+    ///
+    /// The emitted file is sourced, so a name that does not survive
+    /// `to_shell_var_name` produces a line the shell rejects outright
+    /// (`export SHCLAP_MY.OPT=x` is "not a valid identifier"), and two names
+    /// that collapse to the same variable silently discard one of the values.
+    /// Both used to surface only at source time, or not at all.
+    ///
+    /// Takes the prefix explicitly because `--prefix` on the command line
+    /// overrides the config, and the composed name is what has to be valid: a
+    /// leading digit is fine under `SHCLAP_` but not under an empty prefix.
+    pub fn validate_variables(&self, prefix: &str) -> Result<(), ConfigError> {
+        use std::collections::HashMap;
+
+        if !prefix.is_empty() && !is_valid_shell_identifier(prefix) {
+            return Err(ConfigError::InvalidPrefix(prefix.to_string()));
+        }
+
+        // Args in one scope share a namespace, so check each scope against the
+        // variables already claimed in it.
+        let check_scope = |args: &[ArgConfig]| -> Result<(), ConfigError> {
+            let mut seen: HashMap<String, String> = HashMap::new();
+
+            // shclap emits PREFIX+SUBCOMMAND itself whenever subcommands exist,
+            // so an argument of that name would overwrite it.
+            if !self.subcommands.is_empty() {
+                seen.insert(format!("{}SUBCOMMAND", prefix), String::new());
+            }
+
+            for arg in args {
+                let var = format!("{}{}", prefix, to_shell_var_name(&arg.name));
+
+                if !is_valid_shell_identifier(&var) {
+                    return Err(ConfigError::InvalidVariableName {
+                        name: arg.name.clone(),
+                        var,
+                    });
+                }
+
+                if let Some(first) = seen.insert(var.clone(), arg.name.clone()) {
+                    if first.is_empty() {
+                        return Err(ConfigError::ReservedSubcommandVariable {
+                            name: arg.name.clone(),
+                            var,
+                        });
+                    }
+                    return Err(ConfigError::VariableNameCollision {
+                        first,
+                        second: arg.name.clone(),
+                        var,
+                    });
+                }
+            }
+            Ok(())
+        };
+
+        check_scope(&self.args)?;
+        for subcmd in &self.subcommands {
+            check_scope(&subcmd.args)?;
         }
 
         Ok(())
@@ -2113,5 +2215,133 @@ mod tests {
         }"#;
         let result = Config::from_json(json);
         assert!(result.is_err());
+    }
+    // --- shell variable name validation ---
+
+    fn cfg(json: &str) -> Config {
+        Config::from_json(json).expect("config should deserialize")
+    }
+
+    #[test]
+    fn test_rejects_name_that_is_not_an_identifier() {
+        let c = cfg(r#"{"name":"t","args":[{"name":"my.opt","type":"option"}]}"#);
+        match c.validate() {
+            Err(ConfigError::InvalidVariableName { name, var }) => {
+                assert_eq!(name, "my.opt");
+                assert_eq!(var, "SHCLAP_MY.OPT");
+            }
+            other => panic!("expected InvalidVariableName, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rejects_names_colliding_after_transformation() {
+        let c = cfg(
+            r#"{"name":"t","args":[{"name":"my-opt","type":"option"},{"name":"my_opt","type":"option"}]}"#,
+        );
+        match c.validate() {
+            Err(ConfigError::VariableNameCollision { first, second, var }) => {
+                assert_eq!(first, "my-opt");
+                assert_eq!(second, "my_opt");
+                assert_eq!(var, "SHCLAP_MY_OPT");
+            }
+            other => panic!("expected VariableNameCollision, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rejects_invalid_prefix() {
+        let c = cfg(r#"{"name":"t","prefix":"MY-APP_","args":[{"name":"v","type":"flag"}]}"#);
+        assert!(matches!(c.validate(), Err(ConfigError::InvalidPrefix(p)) if p == "MY-APP_"));
+    }
+
+    #[test]
+    fn test_rejects_prefix_starting_with_digit() {
+        let c = cfg(r#"{"name":"t","prefix":"9X_","args":[{"name":"v","type":"flag"}]}"#);
+        assert!(matches!(c.validate(), Err(ConfigError::InvalidPrefix(_))));
+    }
+
+    #[test]
+    fn test_rejects_arg_named_subcommand_when_subcommands_exist() {
+        let c = cfg(
+            r#"{"schema_version":2,"name":"t","args":[{"name":"subcommand","type":"option"}],"subcommands":[{"name":"init"}]}"#,
+        );
+        assert!(matches!(
+            c.validate(),
+            Err(ConfigError::ReservedSubcommandVariable { .. })
+        ));
+    }
+
+    #[test]
+    fn test_allows_arg_named_subcommand_without_subcommands() {
+        // Nothing emits PREFIX+SUBCOMMAND unless subcommands are defined.
+        let c = cfg(r#"{"name":"t","args":[{"name":"subcommand","type":"option"}]}"#);
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn test_leading_digit_is_valid_under_a_nonempty_prefix() {
+        // SHCLAP_2FAST is a perfectly good identifier, so this must not be
+        // rejected; only the composed name has to be valid.
+        let c = cfg(r#"{"name":"t","args":[{"name":"2fast","type":"option"}]}"#);
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn test_leading_digit_is_rejected_under_an_empty_prefix() {
+        let c = cfg(r#"{"name":"t","prefix":"","args":[{"name":"2fast","type":"option"}]}"#);
+        assert!(matches!(
+            c.validate(),
+            Err(ConfigError::InvalidVariableName { .. })
+        ));
+    }
+
+    #[test]
+    fn test_empty_prefix_is_allowed() {
+        let c = cfg(r#"{"name":"t","prefix":"","args":[{"name":"verbose","type":"flag"}]}"#);
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn test_ordinary_names_are_accepted() {
+        for name in ["verbose", "my-opt", "_private", "a1", "UPPER"] {
+            let json = format!(
+                r#"{{"name":"t","args":[{{"name":"{}","type":"option"}}]}}"#,
+                name
+            );
+            assert!(
+                cfg(&json).validate().is_ok(),
+                "rejected valid name: {}",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_subcommand_args_are_checked_too() {
+        let c = cfg(
+            r#"{"schema_version":2,"name":"t","subcommands":[{"name":"init","args":[{"name":"bad.name","type":"option"}]}]}"#,
+        );
+        assert!(matches!(
+            c.validate(),
+            Err(ConfigError::InvalidVariableName { .. })
+        ));
+    }
+
+    #[test]
+    fn test_validate_variables_follows_the_supplied_prefix() {
+        // The same config is fine under SHCLAP_ and broken under an empty
+        // prefix, which is why --prefix has to be rechecked separately.
+        let c = cfg(r#"{"name":"t","args":[{"name":"2fast","type":"option"}]}"#);
+        assert!(c.validate_variables("SHCLAP_").is_ok());
+        assert!(c.validate_variables("").is_err());
+        assert!(c.validate_variables("BAD-").is_err());
+    }
+
+    #[test]
+    fn test_to_shell_var_name_matches_the_emitter() {
+        assert_eq!(to_shell_var_name("my-opt"), "MY_OPT");
+        assert_eq!(to_shell_var_name("verbose"), "VERBOSE");
+        assert_eq!(to_shell_var_name("a-b-c"), "A_B_C");
     }
 }

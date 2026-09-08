@@ -37,7 +37,7 @@ Each argument in the `args` array can have the following fields:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Argument name (becomes env var suffix) |
+| `name` | string | Yes | Argument name (becomes env var suffix). See [Name constraints](#name-constraints). |
 | `short` | char | No | Single character for short flag (e.g., `v` for `-v`) |
 | `long` | string | No | Long flag name (defaults to `name` if no `short` specified) |
 | `type` | string | Yes | One of: `flag`, `option`, `positional` |
@@ -78,6 +78,33 @@ This is equivalent to:
 ```
 
 Both configurations accept `--verbose` and `--output`.
+
+
+### Name constraints
+
+An argument's `name` becomes a shell variable: it is uppercased, hyphens become
+underscores, and the configured `prefix` is prepended. `output` under the
+default prefix becomes `SHCLAP_OUTPUT`; `my-opt` becomes `SHCLAP_MY_OPT`.
+
+The composed result has to be something the shell will accept on the left of an
+assignment, so shclap rejects a configuration when:
+
+- the resulting variable is not a valid shell identifier — for example a `name`
+  containing `.` or a space, which would emit `export SHCLAP_MY.OPT=...` and
+  fail when the script sources it;
+- two arguments in the same scope collapse to the same variable — `my-opt` and
+  `my_opt` both yield `SHCLAP_MY_OPT`, and one value would silently overwrite
+  the other;
+- an argument maps to `PREFIX` + `SUBCOMMAND` while subcommands are defined,
+  since shclap emits that variable itself to report the selected subcommand.
+
+Only the composed name has to be valid, so a leading digit is fine under a
+non-empty prefix (`2fast` gives `SHCLAP_2FAST`) and rejected only when the
+prefix is empty.
+
+The `prefix` itself, whether from the config or from `--prefix`, must be empty
+or a valid identifier: letters, digits and underscores, starting with a letter
+or underscore.
 
 ## Argument Types
 

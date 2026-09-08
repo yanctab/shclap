@@ -1,6 +1,6 @@
 //! Temporary file generation with shell export statements and special outputs.
 
-use crate::config::{ArgConfig, ArgType, Config, ContainerConfig};
+use crate::config::{to_shell_var_name, ArgConfig, ArgType, Config, ContainerConfig};
 use crate::parser::ParsedValue;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -58,13 +58,6 @@ log_trace() { shclap log trace "$@"; }
 /// would come back to the script altered.
 fn single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-/// Convert an argument name to a valid shell variable name.
-///
-/// Converts to uppercase and replaces hyphens with underscores.
-fn to_shell_var_name(name: &str) -> String {
-    name.to_uppercase().replace('-', "_")
 }
 
 /// Generate a temporary file with shell export statements.
