@@ -127,7 +127,10 @@ mod tests {
     fn test_unknown_field_inside_entry_object_rejected() {
         let json = r#"{"bundles": {"test": [{"from": "/src", "unknown": true}]}}"#;
         let result: Result<CollectConfig, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "Should reject unknown field inside entry object");
+        assert!(
+            result.is_err(),
+            "Should reject unknown field inside entry object"
+        );
     }
 
     #[test]

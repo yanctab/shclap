@@ -264,6 +264,75 @@ Each task follows this workflow:
 
 ### ~~Testing~~
 - ~~We should have test coverage percentage~~ (Added `make coverage` using cargo-tarpaulin, 74.91% coverage)
+
+---
+
+## Phase 7 — `shclap collect`
+
+### CLI Wiring
+- [ ] Add `collect` subcommand to main CLI (clap integration)
+- [ ] Wire `--config` / `--config-file` argument parsing
+- [ ] Wire `--type` (dir/archive) argument parsing
+- [ ] Wire `--out` output path argument parsing
+- [ ] Wire `--archive-format` format selection (tar, tar.gz, tar.bz2, tar.xz, zip)
+- [ ] Wire `--bundle` bundle selection (optional)
+
+### Collect Module (`src/collect/`)
+- [ ] Create `collect` module structure
+- [ ] Implement collect schema parsing (independent from parse schema)
+- [ ] Implement bundle and entry validation
+- [ ] Write unit tests for collect config parsing
+
+### Environment & Glob Integration
+- [ ] Integrate environment variable expansion for `from` and `to` fields
+- [ ] Implement glob pattern matching (`*`, `**`, `?`, `[...]`)
+- [ ] Handle glob edge cases (escaped characters, empty matches)
+- [ ] Write unit tests for glob and env expansion
+
+### Directory Output
+- [ ] Implement directory collection (`--type=dir`)
+- [ ] Create output directory if missing
+- [ ] Handle file merging (collision detection and resolution)
+- [ ] Preserve file permissions and metadata
+- [ ] Write unit tests for directory output
+
+### Archive Output (Multiple Formats)
+- [ ] Implement TAR archive output (uncompressed: `.tar`)
+- [ ] Implement gzip compression (`.tar.gz`)
+- [ ] Implement bzip2 compression (`.tar.bz2`)
+- [ ] Implement xz compression (`.tar.xz`)
+- [ ] Implement ZIP archive output (`.zip`)
+- [ ] Auto-detect format from file extension
+- [ ] Support `--out=-` streaming to stdout
+- [ ] Write unit tests for each archive format
+
+### Integration Tests
+- [ ] Test collect with simple file list
+- [ ] Test glob patterns (single level, recursive, wildcard)
+- [ ] Test multiple bundles and bundle selection (`--bundle`)
+- [ ] Test directory output and file merging
+- [ ] Test archive output (each format)
+- [ ] Test streaming to stdout (`--out=-`)
+- [ ] Test environment variable expansion
+- [ ] Test collision detection and optional entries
+- [ ] Test error cases (missing required entries, invalid paths, invalid formats)
+- [ ] Test `SHCLAP_LOG` integration
+
+### Documentation
+- [ ] Update CLI reference with `shclap collect` command documentation
+- [ ] Create `docs/collect.md` with full schema reference
+- [ ] Document glob semantics, env expansion, collision behavior
+- [ ] Document archive formats and streaming
+- [ ] Document `SHCLAP_LOG` interaction
+- [ ] Document container-transparent guarantee
+- [ ] Update `docs/schema.md` with collect schema section
+
+### Man Page
+- [ ] Add `collect` command entry to `man/shclap.1`
+- [ ] Document all `collect` options and flags
+- [ ] Include usage example
+- [ ] Link to `docs/collect.md` in SEE ALSO section
+
 ---
 
 

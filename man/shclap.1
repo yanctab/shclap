@@ -78,6 +78,46 @@ Write a leveled, colored log message to stderr. Respects
 after sourcing
 .B shclap parse
 output.
+.TP
+.B collect
+Collect files and directories into a bundle according to a JSON configuration.
+Output the collected bundle as a directory or compressed archive.
+.RS
+.TP
+.BI \-\-config " JSON"
+JSON configuration string defining the bundles and entries to collect. Required.
+.TP
+.BI \-\-config-file " PATH"
+Path to a JSON configuration file. Alternative to \-\-config.
+.TP
+.BI \-\-type " TYPE"
+Output type. One of:
+.RS
+.TP
+.B dir
+Output as a directory (default).
+.TP
+.B archive
+Output as a compressed archive (format auto-detected from \-\-out extension).
+.RE
+.TP
+.BI \-\-out " PATH"
+Output path. For
+.B dir
+type, this is the output directory. For
+.B archive
+type, this is the archive file path. Use
+.B -
+to output to stdout (archive only).
+.TP
+.BI \-\-archive-format " FORMAT"
+Archive format. One of: tar, tar.gz, tar.bz2, tar.xz, zip. Required when using
+.B \-\-out -
+with archive type. Optional otherwise (auto-detected from extension).
+.TP
+.BI \-\-bundle " NAME"
+Collect only the specified bundle. If not provided, all bundles are collected.
+.RE
 .SH OPTIONS
 .SS "Parse Command Options"
 .TP
