@@ -1558,6 +1558,24 @@ else
     fi
 fi
 
+
+section "25. shclap collect"
+
+# Test: Basic dir collect with bare path entry
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "test content" > "$COLLECT_TMPDIR/src/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+OUTPUT=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null)
+if [[ -f "$OUTPUT_DIR/file.txt" ]] && grep -q "test content" "$OUTPUT_DIR/file.txt"; then
+    pass "Basic dir collect with bare path entry"
+else
+    fail "Basic dir collect with bare path entry" "file.txt with 'test content'" "$(ls -la $OUTPUT_DIR 2>&1)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
 #
 # Summary
 #
