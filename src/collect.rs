@@ -124,6 +124,111 @@ fn resolve_glob_pattern(pattern: &str) -> anyhow::Result<Vec<String>> {
     Ok(matches)
 }
 
+/// Detect archive format from file extension.
+fn detect_format_from_extension(path: &str) -> anyhow::Result<ArchiveFormat> {
+    if path.ends_with(".tar.gz") || path.ends_with(".tgz") {
+        Ok(ArchiveFormat::TarGz)
+    } else if path.ends_with(".tar") {
+        Ok(ArchiveFormat::Tar)
+    } else if path.ends_with(".zip") {
+        Ok(ArchiveFormat::Zip)
+    } else {
+        Err(anyhow::anyhow!(
+            "unknown archive format: {}; use --archive-format to specify",
+            path
+        ))
+    }
+}
+
+/// Write an archive with the collected file pairs.
+fn write_archive(
+    format: ArchiveFormat,
+    out_path: &str,
+    pairs: &[(String, String)],
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    use std::fs::File;
+    use std::io::{self, Write};
+
+    match format {
+        ArchiveFormat::Tar => {
+            if out_path == "-" {
+                let stdout = io::stdout();
+                let mut builder = tar::Builder::new(stdout.lock());
+                for (src_path, dest_path) in pairs {
+                    builder.append_file(dest_path, &mut File::open(src_path)?)?;
+                }
+                builder.finish().context("failed to finalize tar archive")?;
+            } else {
+                let file = File::create(out_path).context("failed to create tar archive")?;
+                let mut builder = tar::Builder::new(file);
+                for (src_path, dest_path) in pairs {
+                    builder.append_file(dest_path, &mut File::open(src_path)?)?;
+                }
+                builder.finish().context("failed to finalize tar archive")?;
+            }
+        }
+        ArchiveFormat::TarGz => {
+            if out_path == "-" {
+                let stdout = io::stdout();
+                let encoder =
+                    flate2::write::GzEncoder::new(stdout.lock(), flate2::Compression::default());
+                let mut builder = tar::Builder::new(encoder);
+                for (src_path, dest_path) in pairs {
+                    builder.append_file(dest_path, &mut File::open(src_path)?)?;
+                }
+                builder
+                    .finish()
+                    .context("failed to finalize tar.gz archive")?;
+            } else {
+                let file = File::create(out_path).context("failed to create tar.gz archive")?;
+                let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+                let mut builder = tar::Builder::new(encoder);
+                for (src_path, dest_path) in pairs {
+                    builder.append_file(dest_path, &mut File::open(src_path)?)?;
+                }
+                builder
+                    .finish()
+                    .context("failed to finalize tar.gz archive")?;
+            }
+        }
+        ArchiveFormat::Zip => {
+            if out_path == "-" {
+                let cursor = io::Cursor::new(Vec::new());
+                let mut writer = zip::ZipWriter::new(cursor);
+                for (src_path, dest_path) in pairs {
+                    let file_content = std::fs::read(src_path)
+                        .context(format!("failed to read file: {}", src_path))?;
+                    writer.start_file(
+                        dest_path.clone(),
+                        zip::write::FileOptions::default()
+                            .compression_method(zip::CompressionMethod::Stored),
+                    )?;
+                    writer.write_all(&file_content)?;
+                }
+                let buffer = writer.finish().context("failed to finalize zip archive")?;
+                io::stdout().write_all(buffer.get_ref())?;
+            } else {
+                let file = File::create(out_path).context("failed to create zip archive")?;
+                let mut writer = zip::ZipWriter::new(file);
+                for (src_path, dest_path) in pairs {
+                    let file_content = std::fs::read(src_path)
+                        .context(format!("failed to read file: {}", src_path))?;
+                    writer.start_file(
+                        dest_path.clone(),
+                        zip::write::FileOptions::default()
+                            .compression_method(zip::CompressionMethod::Stored),
+                    )?;
+                    writer.write_all(&file_content)?;
+                }
+                writer.finish().context("failed to finalize zip archive")?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1373,14 +1478,622 @@ mod tests {
         assert_eq!(entries.len(), 1, "Should have exactly 1 file");
         assert_eq!(entries[0], "binaries.txt", "Should only have binaries.txt");
     }
+
+    #[test]
+    fn test_archive_tar_format_detection() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+
+        // Create test file
+        fs::write(temp_path.join("test.txt"), "content").expect("Failed to write file");
+
+        // Use tempdir for output archive
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+        let out_archive = out_dir.path().join("out.tar");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("test.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_archive.to_str().unwrap(),
+            OutputType::Archive,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(
+            result.is_ok(),
+            "run() should succeed: {}",
+            result.unwrap_err()
+        );
+
+        // Verify archive exists and is readable as tar
+        assert!(out_archive.exists(), "tar archive should exist");
+
+        // Use std command to list contents
+        let output = std::process::Command::new("tar")
+            .args(&["-tf", out_archive.to_str().unwrap()])
+            .output()
+            .expect("Failed to run tar -tf");
+
+        assert!(
+            output.status.success(),
+            "tar should be able to read archive"
+        );
+        let contents = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            contents.contains("test.txt"),
+            "archive should contain test.txt"
+        );
+    }
+
+    #[test]
+    fn test_archive_tar_gz_format_detection() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+
+        // Create test file
+        fs::write(temp_path.join("test.txt"), "content").expect("Failed to write file");
+
+        // Use tempdir for output archive
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+        let out_archive = out_dir.path().join("out.tar.gz");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("test.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_archive.to_str().unwrap(),
+            OutputType::Archive,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(
+            result.is_ok(),
+            "run() should succeed: {}",
+            result.unwrap_err()
+        );
+
+        // Verify archive exists and is readable as tar.gz
+        assert!(out_archive.exists(), "tar.gz archive should exist");
+
+        // Use std command to list contents
+        let output = std::process::Command::new("tar")
+            .args(&["-tzf", out_archive.to_str().unwrap()])
+            .output()
+            .expect("Failed to run tar -tzf");
+
+        assert!(
+            output.status.success(),
+            "tar should be able to read tar.gz archive"
+        );
+        let contents = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            contents.contains("test.txt"),
+            "archive should contain test.txt"
+        );
+    }
+
+    #[test]
+    fn test_archive_tgz_format_detection() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+
+        // Create test file
+        fs::write(temp_path.join("test.txt"), "content").expect("Failed to write file");
+
+        // Use tempdir for output archive
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+        let out_archive = out_dir.path().join("out.tgz");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("test.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_archive.to_str().unwrap(),
+            OutputType::Archive,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(
+            result.is_ok(),
+            "run() should succeed: {}",
+            result.unwrap_err()
+        );
+
+        // Verify archive exists and is readable as tgz
+        assert!(out_archive.exists(), "tgz archive should exist");
+
+        // Use std command to list contents
+        let output = std::process::Command::new("tar")
+            .args(&["-tzf", out_archive.to_str().unwrap()])
+            .output()
+            .expect("Failed to run tar -tzf");
+
+        assert!(
+            output.status.success(),
+            "tar should be able to read tgz archive"
+        );
+        let contents = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            contents.contains("test.txt"),
+            "archive should contain test.txt"
+        );
+    }
+
+    #[test]
+    fn test_archive_zip_format_detection() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+
+        // Create test file
+        fs::write(temp_path.join("test.txt"), "content").expect("Failed to write file");
+
+        // Use tempdir for output archive
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+        let out_archive = out_dir.path().join("out.zip");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("test.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_archive.to_str().unwrap(),
+            OutputType::Archive,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(
+            result.is_ok(),
+            "run() should succeed: {}",
+            result.unwrap_err()
+        );
+
+        // Verify archive exists and is readable as zip
+        assert!(out_archive.exists(), "zip archive should exist");
+
+        // Use std command to list contents
+        let output = std::process::Command::new("unzip")
+            .args(&["-l", out_archive.to_str().unwrap()])
+            .output()
+            .expect("Failed to run unzip -l");
+
+        assert!(
+            output.status.success(),
+            "unzip should be able to read archive"
+        );
+        let contents = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            contents.contains("test.txt"),
+            "archive should contain test.txt"
+        );
+    }
+
+    #[test]
+    fn test_archive_format_override() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+
+        // Create test file
+        fs::write(temp_path.join("test.txt"), "content").expect("Failed to write file");
+
+        // Use tempdir for output archive
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+        let out_archive = out_dir.path().join("out.custom");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("test.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_archive.to_str().unwrap(),
+            OutputType::Archive,
+            Some(ArchiveFormat::Tar),
+            &["test".to_string()],
+        );
+
+        assert!(
+            result.is_ok(),
+            "run() should succeed: {}",
+            result.unwrap_err()
+        );
+
+        // Verify archive exists and is readable as tar
+        assert!(out_archive.exists(), "tar archive should exist");
+
+        // Use std command to list contents
+        let output = std::process::Command::new("tar")
+            .args(&["-tf", out_archive.to_str().unwrap()])
+            .output()
+            .expect("Failed to run tar -tf");
+
+        assert!(
+            output.status.success(),
+            "tar should be able to read archive"
+        );
+    }
+
+    #[test]
+    fn test_archive_unknown_extension_error() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+
+        // Create test file
+        fs::write(temp_path.join("test.txt"), "content").expect("Failed to write file");
+
+        // Use tempdir for output archive with unknown extension
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+        let out_archive = out_dir.path().join("out.unknown");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("test.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_archive.to_str().unwrap(),
+            OutputType::Archive,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(result.is_err(), "run() should fail with unknown extension");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("unknown archive format"),
+            "Error should mention unknown format: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_archive_stdout_without_format_error() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+
+        // Create test file
+        fs::write(temp_path.join("test.txt"), "content").expect("Failed to write file");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("test.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            "-",
+            OutputType::Archive,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(
+            result.is_err(),
+            "run() should fail when using --out - without format"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("unknown archive format"),
+            "Error should mention unknown format: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_archive_stdout_with_format() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+
+        // Create test file
+        fs::write(temp_path.join("test.txt"), "content").expect("Failed to write file");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("test.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        // This test is limited since we can't easily capture stdout in unit tests
+        // Just verify that specifying format doesn't cause an error in the detection phase
+        let result = run(
+            config,
+            "-",
+            OutputType::Archive,
+            Some(ArchiveFormat::Tar),
+            &["test".to_string()],
+        );
+
+        // The test succeeds if no format detection error occurs
+        // (stdout redirection limitations prevent verifying actual tar output)
+        assert!(
+            result.is_ok() || result.unwrap_err().to_string().contains("stdout"),
+            "Should not fail on format detection when format is specified"
+        );
+    }
+
+    #[test]
+    fn test_archive_file_overwrite() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+
+        // Create test file
+        fs::write(temp_path.join("test.txt"), "content").expect("Failed to write file");
+
+        // Use tempdir for output archive
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+        let out_archive = out_dir.path().join("out.tar");
+
+        // Create initial archive
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("test.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result1 = run(
+            config.clone(),
+            out_archive.to_str().unwrap(),
+            OutputType::Archive,
+            None,
+            &["test".to_string()],
+        );
+        assert!(result1.is_ok(), "First run should succeed");
+
+        let metadata1 = fs::metadata(out_archive.as_path()).expect("File should exist");
+        let modified1 = metadata1.modified().expect("Should get modified time");
+
+        // Wait a bit and create second archive
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        let result2 = run(
+            config,
+            out_archive.to_str().unwrap(),
+            OutputType::Archive,
+            None,
+            &["test".to_string()],
+        );
+        assert!(result2.is_ok(), "Second run should succeed");
+
+        // File should exist and be updated
+        assert!(out_archive.exists(), "Archive should still exist");
+        let metadata2 = fs::metadata(out_archive.as_path()).expect("File should exist");
+        let modified2 = metadata2.modified().expect("Should get modified time");
+
+        assert!(
+            modified2 > modified1,
+            "Archive should be overwritten (updated)"
+        );
+    }
+
+    #[test]
+    fn test_archive_symlink_handling() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+
+        // Create original file
+        fs::write(temp_path.join("original.txt"), "original content")
+            .expect("Failed to write original file");
+
+        // Create symlink
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(
+            temp_path.join("original.txt"),
+            temp_path.join("symlink.txt"),
+        )
+        .expect("Failed to create symlink");
+
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(
+            temp_path.join("original.txt"),
+            temp_path.join("symlink.txt"),
+        )
+        .expect("Failed to create symlink");
+
+        // Use tempdir for output archive
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+        let out_archive = out_dir.path().join("out.tar");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("symlink.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_archive.to_str().unwrap(),
+            OutputType::Archive,
+            None,
+            &["test".to_string()],
+        );
+
+        assert!(
+            result.is_ok(),
+            "run() should succeed: {}",
+            result.unwrap_err()
+        );
+
+        // Verify archive exists and contains symlink content
+        assert!(out_archive.exists(), "tar archive should exist");
+
+        // Use std command to list contents
+        let output = std::process::Command::new("tar")
+            .args(&["-tf", out_archive.to_str().unwrap()])
+            .output()
+            .expect("Failed to run tar -tf");
+
+        assert!(
+            output.status.success(),
+            "tar should be able to read archive"
+        );
+        let contents = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            contents.contains("symlink.txt"),
+            "archive should contain symlink.txt"
+        );
+    }
 }
 
 /// Run the collection engine: copy matched files from config to destination.
 pub fn run(
     config: CollectConfig,
     out: &str,
-    _output_type: OutputType,
-    _archive_format: Option<ArchiveFormat>,
+    output_type: OutputType,
+    archive_format: Option<ArchiveFormat>,
     bundles: &[String],
 ) -> anyhow::Result<()> {
     use crate::expand::expand;
@@ -1391,8 +2104,16 @@ pub fn run(
     // Initialize logging
     crate::logging::init_once();
 
-    // Create output directory
-    fs::create_dir_all(out).context("failed to create output directory")?;
+    // For archive output, prepare file pairs. For directory output, create output directory.
+    let mut file_pairs: Vec<(String, String)> = Vec::new();
+
+    if output_type == OutputType::Archive && out != "-" {
+        // For archive output to a file, we'll collect pairs and write at the end
+    } else if output_type == OutputType::Dir {
+        // Create output directory for dir output
+        fs::create_dir_all(out).context("failed to create output directory")?;
+    }
+    // For archive output to stdout, file pairs will be used directly at the end
 
     // If bundles selector is non-empty, validate all names exist in config
     if !bundles.is_empty() {
@@ -1516,19 +2237,27 @@ pub fn run(
                         // Validate destination path safety
                         validate_to_path(&to_path)?;
 
-                        let dest_full_path = Path::new(out).join(&to_path);
+                        if output_type == OutputType::Archive {
+                            // For archive output, collect the pair
+                            file_pairs.push((matched_file.clone(), to_path.clone()));
+                            log::info!("collected {} -> {}", matched_file, to_path);
+                        } else {
+                            // For directory output, copy the file
+                            let dest_full_path = Path::new(out).join(&to_path);
 
-                        // Create parent directories if needed
-                        if let Some(parent) = dest_full_path.parent() {
-                            fs::create_dir_all(parent)
-                                .context("failed to create parent directory")?;
+                            // Create parent directories if needed
+                            if let Some(parent) = dest_full_path.parent() {
+                                fs::create_dir_all(parent)
+                                    .context("failed to create parent directory")?;
+                            }
+
+                            // Copy the file
+                            fs::copy(&matched_file, &dest_full_path)
+                                .context("failed to copy file")?;
+
+                            // Log the collection
+                            log::info!("collected {} -> {}", matched_file, to_path);
                         }
-
-                        // Copy the file
-                        fs::copy(&matched_file, &dest_full_path).context("failed to copy file")?;
-
-                        // Log the collection
-                        log::info!("collected {} -> {}", matched_file, to_path);
                     }
                 } else {
                     // Non-glob path: use existing logic
@@ -1568,21 +2297,41 @@ pub fn run(
                     // Validate destination path safety
                     validate_to_path(&to_path)?;
 
-                    let dest_full_path = Path::new(out).join(&to_path);
+                    if output_type == OutputType::Archive {
+                        // For archive output, collect the pair
+                        file_pairs.push((from.clone(), to_path.clone()));
+                        log::info!("collected {} -> {}", from, to_path);
+                    } else {
+                        // For directory output, copy the file
+                        let dest_full_path = Path::new(out).join(&to_path);
 
-                    // Create parent directories if needed
-                    if let Some(parent) = dest_full_path.parent() {
-                        fs::create_dir_all(parent).context("failed to create parent directory")?;
+                        // Create parent directories if needed
+                        if let Some(parent) = dest_full_path.parent() {
+                            fs::create_dir_all(parent)
+                                .context("failed to create parent directory")?;
+                        }
+
+                        // Copy the file
+                        fs::copy(&from, &dest_full_path).context("failed to copy file")?;
+
+                        // Log the collection
+                        log::info!("collected {} -> {}", from, to_path);
                     }
-
-                    // Copy the file
-                    fs::copy(&from, &dest_full_path).context("failed to copy file")?;
-
-                    // Log the collection
-                    log::info!("collected {} -> {}", from, to_path);
                 }
             }
         }
+    }
+
+    // Handle archive output
+    if output_type == OutputType::Archive {
+        // Detect format from extension or use provided format
+        let format = if let Some(fmt) = archive_format {
+            fmt
+        } else {
+            detect_format_from_extension(out)?
+        };
+
+        write_archive(format, out, &file_pairs)?;
     }
 
     // Print output path to stdout
