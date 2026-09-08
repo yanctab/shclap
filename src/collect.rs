@@ -1,8 +1,8 @@
 //! Configuration schema and collection engine for the `collect` subcommand.
 
 use clap::ValueEnum;
+use indexmap::IndexMap;
 use serde::Deserialize;
-use std::collections::HashMap;
 
 /// Archive format for collected bundles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ValueEnum)]
@@ -58,8 +58,8 @@ pub struct CollectConfig {
     /// Schema version (defaults to 1 if omitted).
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
-    /// Bundles mapping: bundle name to list of entries.
-    pub bundles: HashMap<String, Vec<Entry>>,
+    /// Bundles mapping: bundle name to list of entries (preserves insertion order).
+    pub bundles: IndexMap<String, Vec<Entry>>,
 }
 
 fn default_schema_version() -> u32 {
@@ -227,7 +227,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -282,7 +282,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -338,7 +338,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -391,7 +391,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -448,7 +448,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -502,7 +502,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -546,7 +546,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -600,7 +600,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -651,7 +651,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -696,7 +696,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert("test".to_string(), vec![Entry::Bare(pattern)]);
                 bundles
             },
@@ -741,7 +741,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -785,7 +785,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -831,7 +831,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -871,7 +871,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -904,7 +904,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -949,7 +949,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![
@@ -1001,7 +1001,7 @@ mod tests {
         let config = CollectConfig {
             schema_version: 1,
             bundles: {
-                let mut bundles = HashMap::new();
+                let mut bundles = IndexMap::new();
                 bundles.insert(
                     "test".to_string(),
                     vec![Entry::Object(EntryObject {
@@ -1030,6 +1030,326 @@ mod tests {
             err_msg
         );
     }
+
+    #[test]
+    fn test_bundle_selector_single_bundle() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        // Create source files for two bundles
+        fs::write(temp_path.join("binaries.txt"), "binary content")
+            .expect("Failed to write binaries file");
+        fs::write(temp_path.join("logs.txt"), "log content")
+            .expect("Failed to write logs file");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "binaries".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("binaries.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles.insert(
+                    "logs".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("logs.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        // Request only the "binaries" bundle
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &["binaries".to_string()],
+        );
+
+        assert!(result.is_ok(), "run() should succeed when requesting a valid bundle");
+
+        // Verify only binaries.txt was copied, not logs.txt
+        let files: Vec<_> = fs::read_dir(out_dir.path())
+            .expect("Failed to read output dir")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .map(|e| e.file_name().into_string().unwrap())
+            .collect();
+
+        assert_eq!(files.len(), 1, "Should have copied only 1 file");
+        assert!(files.contains(&"binaries.txt".to_string()), "Should have copied binaries.txt");
+        assert!(
+            !files.contains(&"logs.txt".to_string()),
+            "Should not have copied logs.txt"
+        );
+    }
+
+    #[test]
+    fn test_bundle_selector_multi_bundle() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        // Create source files for three bundles
+        fs::write(temp_path.join("binaries.txt"), "binary content")
+            .expect("Failed to write binaries file");
+        fs::write(temp_path.join("logs.txt"), "log content")
+            .expect("Failed to write logs file");
+        fs::write(temp_path.join("config.txt"), "config content")
+            .expect("Failed to write config file");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "binaries".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("binaries.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles.insert(
+                    "logs".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("logs.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles.insert(
+                    "config".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("config.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        // Request both "binaries" and "logs" bundles
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &["binaries".to_string(), "logs".to_string()],
+        );
+
+        assert!(result.is_ok(), "run() should succeed when requesting valid bundles");
+
+        // Verify both requested files were copied, but not config.txt
+        let files: Vec<_> = fs::read_dir(out_dir.path())
+            .expect("Failed to read output dir")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .map(|e| e.file_name().into_string().unwrap())
+            .collect();
+
+        assert_eq!(files.len(), 2, "Should have copied exactly 2 files");
+        assert!(files.contains(&"binaries.txt".to_string()), "Should have copied binaries.txt");
+        assert!(files.contains(&"logs.txt".to_string()), "Should have copied logs.txt");
+        assert!(
+            !files.contains(&"config.txt".to_string()),
+            "Should not have copied config.txt"
+        );
+    }
+
+    #[test]
+    fn test_bundle_selector_omitted_processes_all() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        // Create source files for two bundles
+        fs::write(temp_path.join("binaries.txt"), "binary content")
+            .expect("Failed to write binaries file");
+        fs::write(temp_path.join("logs.txt"), "log content")
+            .expect("Failed to write logs file");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "binaries".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("binaries.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles.insert(
+                    "logs".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("logs.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        // Omit --bundle entirely (pass empty selector)
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &[],
+        );
+
+        assert!(result.is_ok(), "run() should succeed when no bundle selector provided");
+
+        // Verify all files were copied
+        let files: Vec<_> = fs::read_dir(out_dir.path())
+            .expect("Failed to read output dir")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .map(|e| e.file_name().into_string().unwrap())
+            .collect();
+
+        assert_eq!(files.len(), 2, "Should have copied all 2 files");
+        assert!(files.contains(&"binaries.txt".to_string()), "Should have copied binaries.txt");
+        assert!(files.contains(&"logs.txt".to_string()), "Should have copied logs.txt");
+    }
+
+    #[test]
+    fn test_bundle_selector_unknown_bundle_errors() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        // Create source files
+        fs::write(temp_path.join("binaries.txt"), "binary content")
+            .expect("Failed to write binaries file");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "binaries".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("binaries.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        // Request an unknown bundle
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &["unknown_bundle".to_string()],
+        );
+
+        assert!(result.is_err(), "run() should fail when requesting unknown bundle");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("unknown bundle name"),
+            "Error should mention unknown bundle: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("unknown_bundle"),
+            "Error should name the unknown bundle: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_bundle_selector_skipped_bundles_produce_no_files() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_path = temp_dir.path();
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+
+        // Create source files for two bundles
+        fs::write(temp_path.join("binaries.txt"), "binary content")
+            .expect("Failed to write binaries file");
+        fs::write(temp_path.join("logs.txt"), "log content")
+            .expect("Failed to write logs file");
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "binaries".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("binaries.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles.insert(
+                    "logs".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_path.join("logs.txt").to_str().unwrap().to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        // Request only "binaries" bundle
+        let result = run(
+            config,
+            out_dir.path().to_str().unwrap(),
+            OutputType::Dir,
+            None,
+            &["binaries".to_string()],
+        );
+
+        assert!(result.is_ok(), "run() should succeed");
+
+        // Verify output directory contains only binaries.txt
+        let entries: Vec<_> = fs::read_dir(out_dir.path())
+            .expect("Failed to read output dir")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .map(|e| e.file_name().into_string().unwrap())
+            .collect();
+
+        assert_eq!(entries.len(), 1, "Should have exactly 1 file");
+        assert_eq!(entries[0], "binaries.txt", "Should only have binaries.txt");
+    }
 }
 
 /// Run the collection engine: copy matched files from config to destination.
@@ -1051,8 +1371,33 @@ pub fn run(
     // Create output directory
     fs::create_dir_all(out).context("failed to create output directory")?;
 
+    // If bundles selector is non-empty, validate all names exist in config
+    if !bundles.is_empty() {
+        for bundle_name in bundles {
+            if !config.bundles.contains_key(bundle_name) {
+                return Err(anyhow::anyhow!(
+                    "unknown bundle name: {}",
+                    bundle_name
+                ));
+            }
+        }
+    }
+
+    // Determine which bundles to process
+    let bundles_to_process: Vec<&String> = if bundles.is_empty() {
+        // If no selector, process all bundles in config
+        config.bundles.keys().collect()
+    } else {
+        // If selector provided, only process those bundles (in config order)
+        config
+            .bundles
+            .keys()
+            .filter(|k| bundles.contains(k))
+            .collect()
+    };
+
     // Process each requested bundle
-    for bundle_name in bundles {
+    for bundle_name in bundles_to_process {
         if let Some(entries) = config.bundles.get(bundle_name) {
             for entry in entries {
                 // Extract from and to paths
