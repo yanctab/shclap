@@ -1690,6 +1690,63 @@ else
 fi
 rm -rf "$OUTPUT_DIR" "$ERROR_FILE" 2>/dev/null || true
 
+# Test: Env var ${BUILD_DIR}/bin/foo with BUILD_DIR set resolves and copies correctly
+run_test
+REAL_BUILD_DIR=$(mktemp -d)
+mkdir -p "$REAL_BUILD_DIR/bin"
+echo "binary content" > "$REAL_BUILD_DIR/bin/foo"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"\${BUILD_DIR}/bin/foo\",\"to\":\"foo\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+(export BUILD_DIR="$REAL_BUILD_DIR"; "$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null)
+if [[ -f "$OUTPUT_DIR/foo" ]] && grep -q "binary content" "$OUTPUT_DIR/foo"; then
+    pass "Env var \${BUILD_DIR}/bin/foo with BUILD_DIR set resolves and copies correctly"
+else
+    fail "Env var expansion" "foo with 'binary content'" "$(ls -la $OUTPUT_DIR)"
+fi
+rm -rf "$REAL_BUILD_DIR" "$OUTPUT_DIR"
+
+# Test: Env var ${MISSING_VAR}/foo with MISSING_VAR unset produces error
+run_test
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"\${MISSING_VAR}/foo\",\"to\":\"foo\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+unset MISSING_VAR 2>/dev/null || true
+ERROR_FILE=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>&1)
+if [[ -f "$ERROR_FILE" ]] && grep -qi "undefined\|error\|missing" "$ERROR_FILE"; then
+    pass "Env var \${MISSING_VAR}/foo with MISSING_VAR unset produces error"
+else
+    fail "Undefined env var error" "error file with undefined/missing message" "got $ERROR_FILE"
+fi
+rm -rf "$OUTPUT_DIR" "$ERROR_FILE" 2>/dev/null || true
+
+# Test: Missing required from path produces error
+run_test
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"/nonexistent/path/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+ERROR_FILE=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>&1)
+if [[ -f "$ERROR_FILE" ]] && grep -qi "not found\|missing\|error" "$ERROR_FILE"; then
+    pass "Missing required from path produces error"
+else
+    fail "Missing from path error" "error file with not found/missing message" "got $ERROR_FILE"
+fi
+rm -rf "$OUTPUT_DIR" "$ERROR_FILE" 2>/dev/null || true
+
+# Test: optional: true with missing from doesn't error
+run_test
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"/nonexistent/optional.txt\",\"to\":\"optional.txt\",\"optional\":true}]}}"
+OUTPUT_DIR=$(mktemp -d)
+OUTPUT_FILE=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>&1)
+if [[ ! -f "$OUTPUT_FILE" ]] || ! grep -q "error\|Error" "$OUTPUT_FILE"; then
+    # Check that optional.txt was not created
+    if [[ ! -f "$OUTPUT_DIR/optional.txt" ]]; then
+        pass "optional: true with missing from doesn't error"
+    else
+        fail "optional missing from" "optional.txt should not exist" "file exists"
+    fi
+else
+    fail "optional missing from" "no error file" "got error file: $OUTPUT_FILE"
+fi
+rm -rf "$OUTPUT_DIR" "$OUTPUT_FILE" 2>/dev/null || true
+
 #
 # Summary
 #
