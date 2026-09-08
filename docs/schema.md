@@ -453,6 +453,54 @@ Migrating from version 1 to version 2 is straightforward:
 
 Version 2 is fully backwards-compatible with version 1 configurations.
 
+## Collect Config (Independent)
+
+The `shclap collect` command uses an **independent schema** separate from the parse schema. Both schemas use a `schema_version` field, but they are independent version counters.
+
+### Schema Independence
+
+Parse and collect are distinct features:
+
+- **Parse schema** (`schema_version`): Controls argument parsing features (v1 = basic, v2 = env fallback, arrays, subcommands, container bootstrap)
+- **Collect schema** (`schema_version`): Controls file collection features (v1 = bundles, glob patterns, archive output; future versions may add streaming, filters, etc.)
+
+A single script can use both features independently:
+
+```json
+{
+  "schema_version": 2,
+  "name": "myapp",
+  "args": [...],
+  "subcommands": [...]
+}
+```
+
+And in a separate configuration file or environment variable, use collect:
+
+```json
+{
+  "schema_version": 1,
+  "bundles": {
+    "backup": [...]
+  }
+}
+```
+
+The parse configuration uses schema v2; the collect configuration uses schema v1. They are completely independent.
+
+### Collect Schema v1
+
+Version 1 (currently the only version) supports:
+
+- Named bundles (mapping of names to entry arrays)
+- File entries with glob patterns (`from`), destination paths (`to`), and optional flag
+- Environment variable expansion in paths
+- Collision detection and resolution
+- Output to directories or compressed archives
+- Archive format selection
+
+For complete documentation, see [Collect Configuration Reference](collect.md).
+
 ## See Also
 
 - [Configuration Reference](configuration.md) - Full JSON schema reference
