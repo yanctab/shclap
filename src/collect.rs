@@ -1,4 +1,4 @@
-//! Configuration schema for the `collect` subcommand.
+//! Configuration schema and collection engine for the `collect` subcommand.
 
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -142,4 +142,83 @@ mod tests {
             _ => panic!("Expected object entry"),
         }
     }
+}
+
+/// Run the collection engine: copy matched files from config to destination.
+pub fn run(
+    config: CollectConfig,
+    out: &str,
+    _output_type: OutputType,
+    _archive_format: Option<ArchiveFormat>,
+    bundles: &[String],
+) -> anyhow::Result<()> {
+    use crate::expand::expand;
+    use anyhow::Context;
+    use std::fs;
+    use std::path::Path;
+
+    // Initialize logging
+    crate::logging::init_once();
+
+    // Create output directory
+    fs::create_dir_all(out).context("failed to create output directory")?;
+
+    // Process each requested bundle
+    for bundle_name in bundles {
+        if let Some(entries) = config.bundles.get(bundle_name) {
+            for entry in entries {
+                // Extract from and to paths
+                let (from_raw, to_opt, optional) = match entry {
+                    Entry::Bare(path) => (path.clone(), None, false),
+                    Entry::Object(obj) => (obj.from.clone(), obj.to.clone(), obj.optional),
+                };
+
+                // Expand environment variables in from
+                let from = match expand(&from_raw, |name| std::env::var(name).ok()) {
+                    Ok(expanded) => expanded,
+                    Err(e) => {
+                        if optional {
+                            continue;
+                        }
+                        return Err(anyhow::anyhow!("{}", e));
+                    }
+                };
+
+                // Check if source exists
+                if !Path::new(&from).exists() {
+                    if optional {
+                        continue;
+                    }
+                    return Err(anyhow::anyhow!("source file not found: {}", from));
+                }
+
+                // Determine destination
+                let to_path = if let Some(to) = to_opt {
+                    // Expand environment variables in to
+                    expand(&to, |name| std::env::var(name).ok())
+                        .context("failed to expand 'to' path")?
+                } else {
+                    // Use source filename as destination
+                    Path::new(&from)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_string())
+                        .ok_or_else(|| anyhow::anyhow!("cannot determine destination filename"))?
+                };
+
+                let dest_full_path = Path::new(out).join(&to_path);
+
+                // Copy the file
+                fs::copy(&from, &dest_full_path).context("failed to copy file")?;
+
+                // Log the collection
+                log::info!("collected {} -> {}", from, to_path);
+            }
+        }
+    }
+
+    // Print output path to stdout
+    println!("{}", out);
+
+    Ok(())
 }

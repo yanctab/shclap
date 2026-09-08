@@ -60,12 +60,35 @@ pub fn run(level: &str, message: &[String]) -> Result<()> {
         bail!("unrecognized log level: {}", level);
     }
 
-    // Detect TTY for color output
-    let use_color = is_stderr_tty();
-
     // Initialize env_logger with custom format (only once per process)
+    init_once();
+
+    // Join the message parts
+    let message_text = message.join(" ");
+
+    // Dispatch to the appropriate log macro
+    match level_lower.as_str() {
+        "trace" => trace!("{}", message_text),
+        "debug" => debug!("{}", message_text),
+        "info" => info!("{}", message_text),
+        "warn" => warn!("{}", message_text),
+        "error" => error!("{}", message_text),
+        _ => bail!("unrecognized log level: {}", level),
+    }
+
+    Ok(())
+}
+
+/// Initialize the logger once, allowing other modules to use log macros.
+///
+/// This function must be called before using log macros in other modules.
+/// It is safe to call multiple times; the logger is only initialized once.
+pub fn init_once() {
     LOGGER_INIT.call_once(|| {
         let mut builder = env_logger::Builder::new();
+
+        // Detect TTY for color output
+        let use_color = is_stderr_tty();
 
         // Set up custom format with optional colors
         let use_color_copy = use_color;
@@ -85,19 +108,4 @@ pub fn run(level: &str, message: &[String]) -> Result<()> {
         // Initialize the logger
         let _ = builder.try_init();
     });
-
-    // Join the message parts
-    let message_text = message.join(" ");
-
-    // Dispatch to the appropriate log macro
-    match level_lower.as_str() {
-        "trace" => trace!("{}", message_text),
-        "debug" => debug!("{}", message_text),
-        "info" => info!("{}", message_text),
-        "warn" => warn!("{}", message_text),
-        "error" => error!("{}", message_text),
-        _ => bail!("unrecognized log level: {}", level),
-    }
-
-    Ok(())
 }
