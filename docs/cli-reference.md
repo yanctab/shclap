@@ -155,6 +155,48 @@ log_warn "Shown"
 
 See [Logging](logging.md) for more details on the helper functions and logging configuration.
 
+### `shclap collect`
+
+Collect files and directories into a bundle according to a JSON configuration. Output the collected bundle as a directory or compressed archive.
+
+```bash
+shclap collect --config=<JSON> [--type=<TYPE>] --out=<PATH> [--archive-format=<FORMAT>] [--bundle=<NAME>]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `--config=<JSON>` | JSON configuration string defining bundles and entries to collect (required) |
+| `--config-file=<PATH>` | Path to a JSON configuration file (alternative to `--config`) |
+| `--type=<TYPE>` | Output type: `dir` (default) or `archive` |
+| `--out=<PATH>` | Output path; for `dir` type, the output directory; for `archive` type, the archive file path; use `-` to output to stdout (archive only) (required) |
+| `--archive-format=<FORMAT>` | Archive format: `tar`, `tar.gz`, `tar.bz2`, `tar.xz`, or `zip`; required with `--out -`, optional otherwise (auto-detected from extension) |
+| `--bundle=<NAME>` | Collect only the specified bundle; if not provided, all bundles are collected (optional) |
+
+**Example:**
+
+```bash
+#!/bin/bash
+CONFIG='{
+  "schema_version": 1,
+  "bundles": {
+    "backup": [
+      {"from": "src/**/*.rs", "to": "source/"},
+      {"from": "Cargo.toml", "to": ""}
+    ]
+  }
+}'
+shclap collect --config "$CONFIG" --type=dir --out=backup_dir
+```
+
+**Notes:**
+- The collect command uses an independent schema; see [Collect config](collect.md) for full format reference.
+- Glob patterns (e.g., `src/**/*.rs`) expand to all matching files.
+- The `--out` path is created if it does not exist (for `dir` type) or if the parent directory exists (for `archive` type).
+- File collisions are handled per the `optional` and `to` field rules; see [Collect config](collect.md) for details.
+- Use `--out -` with `--archive-format` to stream the archive to stdout for piping.
+
 ## Options
 
 ### `--config=<JSON>`
