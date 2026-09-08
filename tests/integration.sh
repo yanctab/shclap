@@ -1576,6 +1576,51 @@ else
 fi
 rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
 
+# Test: Archive collect for .tar format
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "tar content" > "$COLLECT_TMPDIR/src/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_TAR=$(mktemp --suffix=.tar)
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_TAR" --type archive --archive-format tar 2>/dev/null
+if tar -tf "$OUTPUT_TAR" | grep -q "file.txt"; then
+    pass "Archive collect for .tar format"
+else
+    fail "Archive collect for .tar format" "tar -tf should list file.txt" "$(tar -tf $OUTPUT_TAR 2>&1)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_TAR"
+
+# Test: Archive collect for .tar.gz format
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "tar.gz content" > "$COLLECT_TMPDIR/src/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_TARGZ=$(mktemp --suffix=.tar.gz)
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_TARGZ" --type archive --archive-format tar.gz 2>/dev/null
+if tar -tzf "$OUTPUT_TARGZ" | grep -q "file.txt"; then
+    pass "Archive collect for .tar.gz format"
+else
+    fail "Archive collect for .tar.gz format" "tar -tzf should list file.txt" "$(tar -tzf $OUTPUT_TARGZ 2>&1)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_TARGZ"
+
+# Test: Archive collect for .zip format
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "zip content" > "$COLLECT_TMPDIR/src/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_ZIP=$(mktemp --suffix=.zip)
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_ZIP" --type archive --archive-format zip 2>/dev/null
+if unzip -l "$OUTPUT_ZIP" | grep -q "file.txt"; then
+    pass "Archive collect for .zip format"
+else
+    fail "Archive collect for .zip format" "unzip -l should list file.txt" "$(unzip -l $OUTPUT_ZIP 2>&1)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_ZIP"
+
 #
 # Summary
 #
