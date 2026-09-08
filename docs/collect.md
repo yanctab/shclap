@@ -164,7 +164,18 @@ shclap collect --config "$CONFIG" --type=dir --out=/tmp/bundle
 
 Collects files into a compressed archive. The `--out=<PATH>` argument specifies the archive file path.
 
-The archive format is auto-detected from the file extension (`.tar.gz`, `.tar.bz2`, `.tar.xz`, `.zip`, `.tar`). If the extension is ambiguous or missing, use `--archive-format` to specify the format explicitly.
+The archive format is auto-detected from the file extension. Both the long and
+the conventional short forms are recognised:
+
+| Format | Extensions |
+| --- | --- |
+| `tar` | `.tar` |
+| `tar.gz` | `.tar.gz`, `.tgz` |
+| `tar.bz2` | `.tar.bz2`, `.tbz2`, `.tbz` |
+| `tar.xz` | `.tar.xz`, `.txz` |
+| `zip` | `.zip` |
+
+If the extension is ambiguous or missing, use `--archive-format` to specify the format explicitly.
 
 Supported formats:
 - `tar` — uncompressed TAR archive

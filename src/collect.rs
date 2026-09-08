@@ -1,8 +1,11 @@
 //! Configuration schema and collection engine for the `collect` subcommand.
 
+use anyhow::Context;
 use clap::ValueEnum;
 use indexmap::IndexMap;
 use serde::Deserialize;
+use std::fs::File;
+use std::io::{self, Write};
 
 /// Archive format for collected bundles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ValueEnum)]
@@ -14,6 +17,14 @@ pub enum ArchiveFormat {
     #[serde(rename = "tar.gz")]
     #[value(name = "tar.gz")]
     TarGz,
+    /// TAR archive compressed with bzip2
+    #[serde(rename = "tar.bz2")]
+    #[value(name = "tar.bz2")]
+    TarBz2,
+    /// TAR archive compressed with xz
+    #[serde(rename = "tar.xz")]
+    #[value(name = "tar.xz")]
+    TarXz,
     /// ZIP archive
     Zip,
 }
@@ -128,102 +139,129 @@ fn resolve_glob_pattern(pattern: &str) -> anyhow::Result<Vec<String>> {
 fn detect_format_from_extension(path: &str) -> anyhow::Result<ArchiveFormat> {
     if path.ends_with(".tar.gz") || path.ends_with(".tgz") {
         Ok(ArchiveFormat::TarGz)
+    } else if path.ends_with(".tar.bz2") || path.ends_with(".tbz2") || path.ends_with(".tbz") {
+        Ok(ArchiveFormat::TarBz2)
+    } else if path.ends_with(".tar.xz") || path.ends_with(".txz") {
+        Ok(ArchiveFormat::TarXz)
     } else if path.ends_with(".tar") {
         Ok(ArchiveFormat::Tar)
     } else if path.ends_with(".zip") {
         Ok(ArchiveFormat::Zip)
     } else {
         Err(anyhow::anyhow!(
-            "unknown archive format: {}; use --archive-format to specify",
+            "unknown archive format: {} (supported: tar, tar.gz, tar.bz2, tar.xz, zip); \
+             use --archive-format to specify",
             path
         ))
     }
 }
 
 /// Write an archive with the collected file pairs.
+/// Append every collected pair into a tar stream over `w`.
+///
+/// Returns the writer so the caller can finalize whatever encoder it wrapped:
+/// `tar::Builder::finish` writes the tar trailer but knows nothing about an
+/// enclosing compressor, whose own trailer is only written by its `finish`.
+fn append_tar_entries<W: Write>(w: W, pairs: &[(String, String)]) -> anyhow::Result<W> {
+    let mut builder = tar::Builder::new(w);
+    for (src_path, dest_path) in pairs {
+        let mut file =
+            File::open(src_path).with_context(|| format!("failed to open {}", src_path))?;
+        builder
+            .append_file(dest_path, &mut file)
+            .with_context(|| format!("failed to add {} to archive", src_path))?;
+    }
+    builder
+        .into_inner()
+        .context("failed to finalize tar stream")
+}
+
+/// Write a ZIP archive, buffering in memory when the destination is stdout
+/// because the central directory requires seeking back over the output.
+fn write_zip_archive(out_path: &str, pairs: &[(String, String)]) -> anyhow::Result<()> {
+    fn add_entries<W: Write + io::Seek>(
+        writer: &mut zip::ZipWriter<W>,
+        pairs: &[(String, String)],
+    ) -> anyhow::Result<()> {
+        for (src_path, dest_path) in pairs {
+            let file_content =
+                std::fs::read(src_path).with_context(|| format!("failed to read {}", src_path))?;
+            writer.start_file(
+                dest_path.clone(),
+                zip::write::FileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored),
+            )?;
+            writer.write_all(&file_content)?;
+        }
+        Ok(())
+    }
+
+    if out_path == "-" {
+        let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+        add_entries(&mut writer, pairs)?;
+        let buffer = writer.finish().context("failed to finalize zip archive")?;
+        io::stdout().write_all(buffer.get_ref())?;
+    } else {
+        let file = File::create(out_path).context("failed to create zip archive")?;
+        let mut writer = zip::ZipWriter::new(file);
+        add_entries(&mut writer, pairs)?;
+        writer.finish().context("failed to finalize zip archive")?;
+    }
+    Ok(())
+}
+
+/// Write an archive with the collected file pairs.
+///
+/// Every tar-family format is the same tar stream over a different compressor,
+/// so the destination is chosen once and only the encoder varies. Adding a
+/// format is then a single line rather than another stdout/file pair.
 fn write_archive(
     format: ArchiveFormat,
     out_path: &str,
     pairs: &[(String, String)],
 ) -> anyhow::Result<()> {
-    use anyhow::Context;
-    use std::fs::File;
-    use std::io::{self, Write};
+    use bzip2::write::BzEncoder;
+    use flate2::write::GzEncoder;
+    use liblzma::write::XzEncoder;
 
+    if format == ArchiveFormat::Zip {
+        return write_zip_archive(out_path, pairs);
+    }
+
+    let sink: Box<dyn Write> = if out_path == "-" {
+        Box::new(io::stdout().lock())
+    } else {
+        Box::new(
+            File::create(out_path)
+                .with_context(|| format!("failed to create archive: {}", out_path))?,
+        )
+    };
+
+    // Each arm finishes its encoder so a truncated trailer surfaces as an
+    // error; relying on Drop would discard it silently.
     match format {
         ArchiveFormat::Tar => {
-            if out_path == "-" {
-                let stdout = io::stdout();
-                let mut builder = tar::Builder::new(stdout.lock());
-                for (src_path, dest_path) in pairs {
-                    builder.append_file(dest_path, &mut File::open(src_path)?)?;
-                }
-                builder.finish().context("failed to finalize tar archive")?;
-            } else {
-                let file = File::create(out_path).context("failed to create tar archive")?;
-                let mut builder = tar::Builder::new(file);
-                for (src_path, dest_path) in pairs {
-                    builder.append_file(dest_path, &mut File::open(src_path)?)?;
-                }
-                builder.finish().context("failed to finalize tar archive")?;
-            }
+            append_tar_entries(sink, pairs)?.flush()?;
         }
         ArchiveFormat::TarGz => {
-            if out_path == "-" {
-                let stdout = io::stdout();
-                let encoder =
-                    flate2::write::GzEncoder::new(stdout.lock(), flate2::Compression::default());
-                let mut builder = tar::Builder::new(encoder);
-                for (src_path, dest_path) in pairs {
-                    builder.append_file(dest_path, &mut File::open(src_path)?)?;
-                }
-                builder
-                    .finish()
-                    .context("failed to finalize tar.gz archive")?;
-            } else {
-                let file = File::create(out_path).context("failed to create tar.gz archive")?;
-                let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
-                let mut builder = tar::Builder::new(encoder);
-                for (src_path, dest_path) in pairs {
-                    builder.append_file(dest_path, &mut File::open(src_path)?)?;
-                }
-                builder
-                    .finish()
-                    .context("failed to finalize tar.gz archive")?;
-            }
+            append_tar_entries(GzEncoder::new(sink, flate2::Compression::default()), pairs)?
+                .finish()
+                .context("failed to finalize tar.gz archive")?
+                .flush()?;
         }
-        ArchiveFormat::Zip => {
-            if out_path == "-" {
-                let cursor = io::Cursor::new(Vec::new());
-                let mut writer = zip::ZipWriter::new(cursor);
-                for (src_path, dest_path) in pairs {
-                    let file_content = std::fs::read(src_path)
-                        .context(format!("failed to read file: {}", src_path))?;
-                    writer.start_file(
-                        dest_path.clone(),
-                        zip::write::FileOptions::default()
-                            .compression_method(zip::CompressionMethod::Stored),
-                    )?;
-                    writer.write_all(&file_content)?;
-                }
-                let buffer = writer.finish().context("failed to finalize zip archive")?;
-                io::stdout().write_all(buffer.get_ref())?;
-            } else {
-                let file = File::create(out_path).context("failed to create zip archive")?;
-                let mut writer = zip::ZipWriter::new(file);
-                for (src_path, dest_path) in pairs {
-                    let file_content = std::fs::read(src_path)
-                        .context(format!("failed to read file: {}", src_path))?;
-                    writer.start_file(
-                        dest_path.clone(),
-                        zip::write::FileOptions::default()
-                            .compression_method(zip::CompressionMethod::Stored),
-                    )?;
-                    writer.write_all(&file_content)?;
-                }
-                writer.finish().context("failed to finalize zip archive")?;
-            }
+        ArchiveFormat::TarBz2 => {
+            append_tar_entries(BzEncoder::new(sink, bzip2::Compression::default()), pairs)?
+                .finish()
+                .context("failed to finalize tar.bz2 archive")?
+                .flush()?;
         }
+        ArchiveFormat::TarXz => {
+            append_tar_entries(XzEncoder::new(sink, 6), pairs)?
+                .finish()
+                .context("failed to finalize tar.xz archive")?
+                .flush()?;
+        }
+        ArchiveFormat::Zip => unreachable!("handled above"),
     }
 
     Ok(())
@@ -238,7 +276,6 @@ pub fn run(
     bundles: &[String],
 ) -> anyhow::Result<()> {
     use crate::expand::expand;
-    use anyhow::Context;
     use std::fs;
     use std::path::Path;
 
@@ -1994,6 +2031,122 @@ mod tests {
         let contents = String::from_utf8_lossy(&output.stdout);
         assert!(
             contents.contains("test.txt"),
+            "archive should contain test.txt"
+        );
+    }
+
+    #[test]
+    fn test_archive_tar_bz2_format_detection() {
+        assert_archive_roundtrip("out.tar.bz2", None, &["-tjf"], "bzip2");
+    }
+
+    #[test]
+    fn test_archive_tbz2_format_detection() {
+        assert_archive_roundtrip("out.tbz2", None, &["-tjf"], "bzip2");
+    }
+
+    #[test]
+    fn test_archive_tar_xz_format_detection() {
+        assert_archive_roundtrip("out.tar.xz", None, &["-tJf"], "xz");
+    }
+
+    #[test]
+    fn test_archive_txz_format_detection() {
+        assert_archive_roundtrip("out.txz", None, &["-tJf"], "xz");
+    }
+
+    #[test]
+    fn test_archive_bz2_explicit_format_beats_extension() {
+        // An unrelated name still produces bzip2 when the format is explicit.
+        assert_archive_roundtrip("out.bin", Some(ArchiveFormat::TarBz2), &["-tjf"], "bzip2");
+    }
+
+    #[test]
+    fn test_archive_xz_explicit_format_beats_extension() {
+        assert_archive_roundtrip("out.bin", Some(ArchiveFormat::TarXz), &["-tJf"], "xz");
+    }
+
+    /// Collect one file into `out_name` and confirm GNU tar reads it back with
+    /// the given flags, and that the payload really is the expected codec.
+    fn assert_archive_roundtrip(
+        out_name: &str,
+        format: Option<ArchiveFormat>,
+        tar_flags: &[&str],
+        expect_codec: &str,
+    ) {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        fs::write(temp_dir.path().join("test.txt"), "content").expect("Failed to write file");
+
+        let out_dir = TempDir::new().expect("Failed to create output dir");
+        let out_archive = out_dir.path().join(out_name);
+
+        let config = CollectConfig {
+            schema_version: 1,
+            bundles: {
+                let mut bundles = IndexMap::new();
+                bundles.insert(
+                    "test".to_string(),
+                    vec![Entry::Object(EntryObject {
+                        from: temp_dir
+                            .path()
+                            .join("test.txt")
+                            .to_str()
+                            .unwrap()
+                            .to_string(),
+                        to: None,
+                        optional: false,
+                    })],
+                );
+                bundles
+            },
+        };
+
+        let result = run(
+            config,
+            out_archive.to_str().unwrap(),
+            OutputType::Archive,
+            format,
+            &["test".to_string()],
+        );
+        assert!(
+            result.is_ok(),
+            "run() should succeed: {}",
+            result.unwrap_err()
+        );
+        assert!(out_archive.exists(), "{} should exist", out_name);
+
+        // The magic bytes must match the codec, not just be readable.
+        let sniff = std::process::Command::new("file")
+            .args(["-b", out_archive.to_str().unwrap()])
+            .output()
+            .expect("Failed to run file");
+        let described = String::from_utf8_lossy(&sniff.stdout).to_lowercase();
+        assert!(
+            described.contains(expect_codec),
+            "{} should be {} data, got: {}",
+            out_name,
+            expect_codec,
+            described.trim()
+        );
+
+        let mut args: Vec<&str> = tar_flags.to_vec();
+        let path = out_archive.to_str().unwrap();
+        args.push(path);
+        let output = std::process::Command::new("tar")
+            .args(&args)
+            .output()
+            .expect("Failed to run tar");
+        assert!(
+            output.status.success(),
+            "tar should read {}: {}",
+            out_name,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("test.txt"),
             "archive should contain test.txt"
         );
     }
