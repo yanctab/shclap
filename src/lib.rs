@@ -4,6 +4,7 @@
 //! arguments according to a JSON configuration, generating help text,
 //! and outputting parsed values as shell export statements.
 
+pub mod collect;
 pub mod config;
 pub mod container;
 pub mod expand;
