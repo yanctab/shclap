@@ -2074,7 +2074,7 @@ mod tests {
         }"#;
         let config = Config::from_json(json).unwrap();
         let container = config.container.as_ref().unwrap();
-        assert_eq!(container.host_user, true);
+        assert!(container.host_user);
     }
 
     #[test]
@@ -2087,7 +2087,7 @@ mod tests {
         }"#;
         let config = Config::from_json(json).unwrap();
         let container = config.container.as_ref().unwrap();
-        assert_eq!(container.host_user, true);
+        assert!(container.host_user);
     }
 
     #[test]
@@ -2100,7 +2100,7 @@ mod tests {
         }"#;
         let config = Config::from_json(json).unwrap();
         let container = config.container.as_ref().unwrap();
-        assert_eq!(container.host_user, false);
+        assert!(!container.host_user);
     }
 
     #[test]

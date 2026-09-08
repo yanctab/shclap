@@ -5,7 +5,7 @@
 
 use anyhow::{bail, Result};
 use log::{debug, error, info, trace, warn};
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::sync::Once;
 
 static LOGGER_INIT: Once = Once::new();
@@ -20,9 +20,12 @@ mod colors {
     pub const RESET: &str = "\x1b[0m"; // Reset
 }
 
-/// Check if stderr is a TTY
+/// Check if stderr is a TTY.
+///
+/// Uses `std::io::IsTerminal` (stable since Rust 1.70) rather than the `atty`
+/// crate, which is unmaintained and carries RUSTSEC-2021-0145.
 fn is_stderr_tty() -> bool {
-    atty::is(atty::Stream::Stderr)
+    std::io::stderr().is_terminal()
 }
 
 /// Format a level string with optional color
