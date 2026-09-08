@@ -1,23 +1,25 @@
 //! Configuration schema and collection engine for the `collect` subcommand.
 
+use clap::ValueEnum;
 use serde::Deserialize;
 use std::collections::HashMap;
 
 /// Archive format for collected bundles.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum ArchiveFormat {
     /// TAR archive (uncompressed)
     Tar,
     /// TAR archive compressed with gzip
     #[serde(rename = "tar.gz")]
+    #[value(name = "tar.gz")]
     TarGz,
     /// ZIP archive
     Zip,
 }
 
 /// Output type for the collect operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputType {
     /// Output as a directory
