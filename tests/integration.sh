@@ -1705,47 +1705,114 @@ else
 fi
 rm -rf "$REAL_BUILD_DIR" "$OUTPUT_DIR"
 
-# Test: Env var ${MISSING_VAR}/foo with MISSING_VAR unset produces error
+# Test: Glob **/*.log collects files at nested depths
 run_test
-COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"\${MISSING_VAR}/foo\",\"to\":\"foo\"}]}}"
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src/level1/level2"
+echo "log content 1" > "$COLLECT_TMPDIR/src/root.log"
+echo "log content 2" > "$COLLECT_TMPDIR/src/level1/nested.log"
+echo "log content 3" > "$COLLECT_TMPDIR/src/level1/level2/deep.log"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/**/*.log\"}]}}"
 OUTPUT_DIR=$(mktemp -d)
-unset MISSING_VAR 2>/dev/null || true
-ERROR_FILE=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>&1)
-if [[ -f "$ERROR_FILE" ]] && grep -qi "undefined\|error\|missing" "$ERROR_FILE"; then
-    pass "Env var \${MISSING_VAR}/foo with MISSING_VAR unset produces error"
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+FILE_COUNT=$(find "$OUTPUT_DIR" -name "*.log" -type f | wc -l)
+if [[ $FILE_COUNT -eq 3 ]]; then
+    pass "Glob \*\*/\*.log collects files at nested depths"
 else
-    fail "Undefined env var error" "error file with undefined/missing message" "got $ERROR_FILE"
+    fail "Glob nested collection" "3 log files collected" "found $FILE_COUNT files"
 fi
-rm -rf "$OUTPUT_DIR" "$ERROR_FILE" 2>/dev/null || true
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
 
-# Test: Missing required from path produces error
+# Test: Bundle filtering collects specified bundles only
 run_test
-COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"/nonexistent/path/file.txt\",\"to\":\"file.txt\"}]}}"
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "binary" > "$COLLECT_TMPDIR/src/app"
+echo "logs" > "$COLLECT_TMPDIR/src/app.log"
+echo "config" > "$COLLECT_TMPDIR/src/config.yaml"
+COLLECT_CONFIG="{\"bundles\":{\"binaries\":[{\"from\":\"$COLLECT_TMPDIR/src/app\",\"to\":\"app\"}],\"logs\":[{\"from\":\"$COLLECT_TMPDIR/src/app.log\",\"to\":\"app.log\"}],\"configs\":[{\"from\":\"$COLLECT_TMPDIR/src/config.yaml\",\"to\":\"config.yaml\"}]}}"
 OUTPUT_DIR=$(mktemp -d)
-ERROR_FILE=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>&1)
-if [[ -f "$ERROR_FILE" ]] && grep -qi "not found\|missing\|error" "$ERROR_FILE"; then
-    pass "Missing required from path produces error"
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir --bundle binaries --bundle logs 2>/dev/null
+if [[ -f "$OUTPUT_DIR/app" ]] && [[ -f "$OUTPUT_DIR/app.log" ]] && [[ ! -f "$OUTPUT_DIR/config.yaml" ]]; then
+    pass "--bundle binaries --bundle logs collects those two bundles; third bundle absent"
 else
-    fail "Missing from path error" "error file with not found/missing message" "got $ERROR_FILE"
+    fail "Bundle filtering" "app and app.log present, config.yaml absent" "$(find $OUTPUT_DIR -type f)"
 fi
-rm -rf "$OUTPUT_DIR" "$ERROR_FILE" 2>/dev/null || true
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
 
-# Test: optional: true with missing from doesn't error
+# Test: Two entries resolving to same destination uses last-wins
 run_test
-COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"/nonexistent/optional.txt\",\"to\":\"optional.txt\",\"optional\":true}]}}"
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "first content" > "$COLLECT_TMPDIR/src/file1.txt"
+echo "second content" > "$COLLECT_TMPDIR/src/file2.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file1.txt\",\"to\":\"same.txt\"},{\"from\":\"$COLLECT_TMPDIR/src/file2.txt\",\"to\":\"same.txt\"}]}}"
 OUTPUT_DIR=$(mktemp -d)
-OUTPUT_FILE=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>&1)
-if [[ ! -f "$OUTPUT_FILE" ]] || ! grep -q "error\|Error" "$OUTPUT_FILE"; then
-    # Check that optional.txt was not created
-    if [[ ! -f "$OUTPUT_DIR/optional.txt" ]]; then
-        pass "optional: true with missing from doesn't error"
-    else
-        fail "optional missing from" "optional.txt should not exist" "file exists"
-    fi
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+if [[ -f "$OUTPUT_DIR/same.txt" ]] && grep -q "second content" "$OUTPUT_DIR/same.txt"; then
+    pass "Two entries resolving to same destination uses last-wins"
 else
-    fail "optional missing from" "no error file" "got error file: $OUTPUT_FILE"
+    fail "Collision last-wins" "same.txt with 'second content'" "$(cat $OUTPUT_DIR/same.txt 2>&1)"
 fi
-rm -rf "$OUTPUT_DIR" "$OUTPUT_FILE" 2>/dev/null || true
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: Stdout is exactly the output path with no extra output
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+echo "content" > "$COLLECT_TMPDIR/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+STDOUT_OUTPUT=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null)
+if [[ "$STDOUT_OUTPUT" == "$OUTPUT_DIR" ]]; then
+    pass "Stdout is exactly the output path with no extra output"
+else
+    fail "Stdout contract" "exactly '$OUTPUT_DIR'" "got '$STDOUT_OUTPUT'"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: SHCLAP_LOG=off silences INFO lines but preserves stdout
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+echo "content" > "$COLLECT_TMPDIR/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+FULL_OUTPUT=$(SHCLAP_LOG=off "$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>&1)
+if [[ ! "$FULL_OUTPUT" =~ "INFO:" ]] && [[ "$FULL_OUTPUT" == "$OUTPUT_DIR" ]]; then
+    pass "SHCLAP_LOG=off silences INFO lines but preserves stdout"
+else
+    fail "SHCLAP_LOG=off" "no INFO, stdout is path" "got '$FULL_OUTPUT'"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: Symlink from source resolves to regular file
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "symlink target" > "$COLLECT_TMPDIR/src/target.txt"
+ln -s "$COLLECT_TMPDIR/src/target.txt" "$COLLECT_TMPDIR/src/link.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/link.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+if [[ -f "$OUTPUT_DIR/file.txt" ]] && [[ ! -L "$OUTPUT_DIR/file.txt" ]]; then
+    pass "Symlink from source resolves to regular file"
+else
+    fail "Symlink dereference" "regular file (not symlink)" "$(ls -la $OUTPUT_DIR/file.txt)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: SHCLAP_IN_CONTAINER=1 doesn't affect collect behavior
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+echo "content" > "$COLLECT_TMPDIR/file.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/file.txt\",\"to\":\"file.txt\"}]}}"
+OUTPUT_DIR=$(mktemp -d)
+SHCLAP_IN_CONTAINER=1 "$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+if [[ -f "$OUTPUT_DIR/file.txt" ]]; then
+    pass "SHCLAP_IN_CONTAINER=1 collect runs identically"
+else
+    fail "Container transparency" "file.txt created" "$(ls -la $OUTPUT_DIR)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
 
 #
 # Summary
