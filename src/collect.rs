@@ -2334,8 +2334,15 @@ pub fn run(
         write_archive(format, out, &file_pairs)?;
     }
 
-    // Print output path to stdout
-    println!("{}", out);
+    // Report where the output landed. With `--out -` the archive itself is the
+    // stdout stream, so echoing the path there would append "-\n" to the archive
+    // bytes; `gzip -t` rejects the result as trailing garbage. Name the
+    // destination on stderr instead, keeping stdout byte-exact.
+    if out == "-" {
+        log::info!("wrote archive to stdout");
+    } else {
+        println!("{}", out);
+    }
 
     Ok(())
 }

@@ -357,17 +357,25 @@ flag via
 .B container.args
 in the configuration. This shadows the automatic CWD mount.
 .SH OUTPUT FORMAT
+Values are emitted inside single quotes, which suppress every form of shell
+expansion, so a value reaches the script exactly as it was given on the command
+line \(em including spaces, newlines, tabs, and characters such as
+.BR $ ", " ` ", " ! ", and " * .
+An embedded single quote is escaped as \fB\(aq\e\(aq\(aq\fR.
+.PP
+Each generated file also removes itself as its first statement, so nothing is
+left in the temporary directory once the script has sourced it.
 .SS "Scalar Values"
 Single values are exported as quoted strings:
 .PP
 .RS
-export SHCLAP_OUTPUT="value"
+export SHCLAP_OUTPUT=\(aqvalue\(aq
 .RE
 .SS "Array Values (Schema Version 2)"
 Multiple values are exported as bash arrays:
 .PP
 .RS
-export SHCLAP_FILES=("file1.txt" "file2.txt")
+export SHCLAP_FILES=(\(aqfile1.txt\(aq \(aqfile2.txt\(aq)
 .RE
 .PP
 Access array elements with ${VAR[@]} or ${VAR[0]}, ${VAR[1]}, etc.
@@ -375,7 +383,7 @@ Access array elements with ${VAR[@]} or ${VAR[0]}, ${VAR[1]}, etc.
 When subcommands are used, the selected subcommand is exported:
 .PP
 .RS
-export SHCLAP_SUBCOMMAND="init"
+export SHCLAP_SUBCOMMAND=\(aqinit\(aq
 .RE
 .SH BUILT-IN FLAGS
 The following flags are automatically handled by shclap during parsing:
