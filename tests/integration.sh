@@ -1621,6 +1621,20 @@ else
 fi
 rm -rf "$COLLECT_TMPDIR" "$OUTPUT_ZIP"
 
+# Test: --out - with archive-format tar streams to stdout
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "stream content" > "$COLLECT_TMPDIR/src/data.txt"
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/data.txt\",\"to\":\"data.txt\"}]}}"
+TAR_LIST=$("$SHCLAP" collect --config "$COLLECT_CONFIG" --out - --type archive --archive-format tar 2>/dev/null | tar -tf -)
+if echo "$TAR_LIST" | grep -q "data.txt"; then
+    pass "--out - with archive-format tar streams to stdout"
+else
+    fail "--out - streaming" "tar -tf - should list data.txt" "$TAR_LIST"
+fi
+rm -rf "$COLLECT_TMPDIR"
+
 #
 # Summary
 #
