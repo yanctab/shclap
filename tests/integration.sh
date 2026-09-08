@@ -1635,6 +1635,61 @@ else
 fi
 rm -rf "$COLLECT_TMPDIR"
 
+# Test: --config with inline JSON works
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "config inline" > "$COLLECT_TMPDIR/src/file.txt"
+OUTPUT_DIR=$(mktemp -d)
+COLLECT_CONFIG="{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}"
+"$SHCLAP" collect --config "$COLLECT_CONFIG" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+if [[ -f "$OUTPUT_DIR/file.txt" ]]; then
+    pass "--config with inline JSON works"
+else
+    fail "--config inline JSON" "file.txt created" "$(ls -la $OUTPUT_DIR)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR"
+
+# Test: --config-file with file path works
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+mkdir -p "$COLLECT_TMPDIR/src"
+echo "config file" > "$COLLECT_TMPDIR/src/file.txt"
+CONFIG_FILE=$(mktemp --suffix=.json)
+echo "{\"bundles\":{\"default\":[{\"from\":\"$COLLECT_TMPDIR/src/file.txt\",\"to\":\"file.txt\"}]}}" > "$CONFIG_FILE"
+OUTPUT_DIR=$(mktemp -d)
+"$SHCLAP" collect --config-file "$CONFIG_FILE" --out "$OUTPUT_DIR" --type dir 2>/dev/null
+if [[ -f "$OUTPUT_DIR/file.txt" ]]; then
+    pass "--config-file with file path works"
+else
+    fail "--config-file" "file.txt created" "$(ls -la $OUTPUT_DIR)"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR" "$CONFIG_FILE"
+
+# Test: --config and --config-file together exits non-zero
+run_test
+COLLECT_TMPDIR=$(mktemp -d)
+CONFIG_FILE=$(mktemp --suffix=.json)
+echo "{\"bundles\":{\"default\":[]}}" > "$CONFIG_FILE"
+OUTPUT_DIR=$(mktemp -d)
+if ! "$SHCLAP" collect --config '{"bundles":{}}' --config-file "$CONFIG_FILE" --out "$OUTPUT_DIR" --type dir 2>/dev/null; then
+    pass "--config and --config-file together exits non-zero"
+else
+    fail "--config and --config-file mutual exclusion" "should exit non-zero" "command succeeded"
+fi
+rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR" "$CONFIG_FILE"
+
+# Test: Neither --config nor --config-file exits non-zero
+run_test
+OUTPUT_DIR=$(mktemp -d)
+ERROR_FILE=$("$SHCLAP" collect --out "$OUTPUT_DIR" --type dir 2>&1)
+if [[ -f "$ERROR_FILE" ]] && grep -q "either --config or --config-file must be supplied" "$ERROR_FILE"; then
+    pass "Neither --config nor --config-file exits non-zero"
+else
+    fail "Missing config requirement" "error file with config message" "got $ERROR_FILE"
+fi
+rm -rf "$OUTPUT_DIR" "$ERROR_FILE" 2>/dev/null || true
+
 #
 # Summary
 #
