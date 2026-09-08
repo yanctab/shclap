@@ -1838,10 +1838,7 @@ mod tests {
             &["test".to_string()],
         );
 
-        assert!(
-            result.is_err(),
-            "run() should fail with unknown extension"
-        );
+        assert!(result.is_err(), "run() should fail with unknown extension");
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("unknown archive format"),
@@ -2255,7 +2252,8 @@ pub fn run(
                             }
 
                             // Copy the file
-                            fs::copy(&matched_file, &dest_full_path).context("failed to copy file")?;
+                            fs::copy(&matched_file, &dest_full_path)
+                                .context("failed to copy file")?;
 
                             // Log the collection
                             log::info!("collected {} -> {}", matched_file, to_path);
@@ -2309,7 +2307,8 @@ pub fn run(
 
                         // Create parent directories if needed
                         if let Some(parent) = dest_full_path.parent() {
-                            fs::create_dir_all(parent).context("failed to create parent directory")?;
+                            fs::create_dir_all(parent)
+                                .context("failed to create parent directory")?;
                         }
 
                         // Copy the file
