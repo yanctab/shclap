@@ -630,6 +630,48 @@ exec docker run --rm \
 
 Values that contain only alphanumerics and safe punctuation (`-_./:=@%+,`) are passed through unquoted for readability.
 
+## Container Bootstrap: host_user: false Opt-Out
+
+When you need the container process to run as the image's user instead of the host user, set `"host_user": false`. This is useful for scripts that require elevated privileges or when you want container user isolation:
+
+```bash
+#!/bin/bash
+CONFIG='{
+  "schema_version": 2,
+  "name": "root-container",
+  "description": "A script that must run as root inside a container",
+  "container": {
+    "runtime": "docker",
+    "image": "ubuntu:22.04",
+    "host_user": false
+  },
+  "args": [
+    {"name": "command", "type": "positional", "required": true}
+  ]
+}'
+
+source $(shclap parse --config "$CONFIG" --script "$0" -- "$@")
+
+# Inside the container, this runs as root (or the image's built-in user)
+echo "User ID: $(id -u)"
+echo "Group ID: $(id -g)"
+echo "Running: $SHCLAP_COMMAND"
+```
+
+Usage:
+
+```bash
+./root-container.sh "apt-get update && apt-get install -y curl"
+# Container process runs as root (or image default user), not as the host user
+```
+
+When `host_user: false`, the emitted re-exec fragment omits:
+- `-u "$_shclap_uid:$_shclap_gid"`
+- `-v /etc/passwd:/etc/passwd:ro`
+- `-v /etc/group:/etc/group:ro`
+
+The container runs with the image's default user identity.
+
 ## Running an Already-Containerised Script
 
 If the script is invoked from inside a container that was not started by shclap (for example, a CI runner or a dev shell), shclap detects this and skips re-execution:

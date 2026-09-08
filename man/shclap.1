@@ -281,6 +281,9 @@ Never pull; fail if the image is not cached locally.
 .TP
 .B args
 Array of extra flags to pass to the runtime. Example: ["--network", "host"]
+.TP
+.B host_user
+Map host UID/GID into the container (default: true). When true, the container process runs as the host user and /etc/passwd and /etc/group are bind-mounted read-only. Set to false to run as the image's built-in user.
 .SS "Working Directory Bind-Mount"
 When shclap performs container bootstrap, it automatically:
 .RS
@@ -530,7 +533,7 @@ When a runtime signal is detected, shclap emits the following message to stderr:
 .PP
 .RS
 .nf
-shclap: already inside container (via <signal>) \(em skipping bootstrap
+shclap: container detected via <signal>, skipping reexec
 .fi
 .RE
 .PP

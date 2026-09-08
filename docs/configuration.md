@@ -26,6 +26,7 @@ The `container` object enables automatic re-execution of scripts inside a contai
 | `runtime` | string | Yes | Container runtime: `"docker"` or `"podman"` |
 | `image` | string | Yes | Fully-qualified image reference, e.g. `registry.example.com/img:tag` |
 | `pull_policy` | string | No | When to pull the image: `"always"`, `"missing"`, or `"never"`. Default: `"missing"`. See [Container](container.md). |
+| `host_user` | bool | No | Map host UID/GID into the container so the process runs as the host user. Default: `true`. Set to `false` to run as the image's built-in user. |
 | `args` | array of strings | No | Extra flags passed to `<runtime> run` before the image name. Each value is emitted as a single shell word (quoted when needed), so values may contain spaces. |
 
 See [Container Bootstrap](container.md) for detailed documentation.

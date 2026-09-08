@@ -62,11 +62,16 @@ The exact shape of the emitted invocation:
 _shclap_script=/home/user/myscript.sh
 _shclap_bin=/usr/local/bin/shclap
 _shclap_cwd=/home/user/project
+_shclap_uid=1000
+_shclap_gid=1000
 command -v docker >/dev/null 2>&1 || { echo "shclap: container runtime 'docker' not found" >&2; exit 127; }
 echo "shclap: bootstrapping into docker:ubuntu:22.04" >&2
 set -x
 exec docker run --rm \
   --pull=missing \
+  -u "$_shclap_uid:$_shclap_gid" \
+  -v /etc/passwd:/etc/passwd:ro \
+  -v /etc/group:/etc/group:ro \
   -v "$_shclap_script:$_shclap_script:ro" \
   -v "$_shclap_bin:/usr/local/bin/shclap:ro" \
   -v "$_shclap_cwd:$_shclap_cwd" \
@@ -81,6 +86,7 @@ exec docker run --rm \
 Key points:
 
 - `--pull=<policy>` is emitted immediately after `--rm`. The value matches `container.pull_policy` verbatim (`always`, `missing`, or `never`).
+- **User identity mapping** (when `host_user: true`, the default): `_shclap_uid` and `_shclap_gid` are set to the host user's UID and GID. The `-u "$_shclap_uid:$_shclap_gid"` flag runs the container process as the host user. Two read-only volume mounts of `/etc/passwd` and `/etc/group` follow, allowing the container to resolve user/group names. When `host_user: false`, these three lines are omitted and the container runs as the image's built-in user.
 - The script and shclap binary are mounted read-only into the container.
 - The caller's working directory is captured at parse time, bind-mounted read-write into the container, and set as the `--workdir` inside the container. This ensures relative paths work correctly inside the container. The emitted working directory is the physical path (all symlinks resolved). The caller can override the working directory via `container.args` (e.g., `"args": ["--workdir", "/tmp"]`).
 - `SHCLAP_IN_CONTAINER=1` is set so the container pass detects the bypass signal.
@@ -116,6 +122,7 @@ The `container` field is an object nested directly under the top-level config (v
 | `runtime` | string | Yes | Container runtime: `"docker"` or `"podman"` |
 | `image` | string | Yes | Fully-qualified image reference, e.g. `registry.example.com/img:tag` |
 | `pull_policy` | string | No | When to pull the image: `"always"`, `"missing"`, or `"never"`. Default: `"missing"`. |
+| `host_user` | bool | No | Map host UID/GID into the container. Default: `true`. Set to `false` to run as the image's built-in user. |
 | `args` | array of strings | No | Extra flags passed to `<runtime> run` before the image name. |
 
 ### Pull Policy
