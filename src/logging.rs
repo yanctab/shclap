@@ -28,6 +28,29 @@ fn is_stderr_tty() -> bool {
     std::io::stderr().is_terminal()
 }
 
+/// Decide whether log output should carry ANSI color codes.
+///
+/// `SHCLAP_LOG_STYLE` selects the policy, matching the documented values:
+/// - `always` — always color
+/// - `never` — never color
+/// - `auto` (the default, and the fallback for any unrecognized value) — color
+///   only when stderr is a terminal
+///
+/// Under `auto` a non-empty `NO_COLOR` also suppresses color, following the
+/// no-color.org convention. An explicit `always` is a deliberate override and
+/// wins over `NO_COLOR`.
+///
+/// Taking the environment as parameters keeps this decision testable without
+/// mutating process state, which would race the other tests in this binary.
+fn should_use_color(style: Option<&str>, no_color: Option<&str>, stderr_is_tty: bool) -> bool {
+    match style.map(|s| s.trim().to_lowercase()).as_deref() {
+        Some("always") => true,
+        Some("never") => false,
+        // auto, unset, or anything unrecognized
+        _ => stderr_is_tty && no_color.is_none_or(|v| v.is_empty()),
+    }
+}
+
 /// Format a level string with optional color
 fn format_level(level: &str, use_color: bool) -> String {
     let level_lower = level.to_lowercase();
@@ -90,11 +113,27 @@ pub fn init_once() {
     LOGGER_INIT.call_once(|| {
         let mut builder = env_logger::Builder::new();
 
-        // Detect TTY for color output
-        let use_color = is_stderr_tty();
+        // Resolve the color policy from SHCLAP_LOG_STYLE, falling back to TTY
+        // detection. This was previously hard-wired to TTY detection alone, so
+        // SHCLAP_LOG_STYLE was documented and forwarded into containers but had
+        // no effect on output.
+        let use_color_copy = should_use_color(
+            std::env::var("SHCLAP_LOG_STYLE").ok().as_deref(),
+            std::env::var("NO_COLOR").ok().as_deref(),
+            is_stderr_tty(),
+        );
 
-        // Set up custom format with optional colors
-        let use_color_copy = use_color;
+        // env_logger writes through anstream, which strips ANSI sequences when
+        // its own write style resolves to "no color" — which, under the default
+        // Auto, it does whenever stderr is not a terminal. Without this the
+        // codes emitted below would be silently removed and SHCLAP_LOG_STYLE
+        // would still have no visible effect when piped.
+        builder.write_style(if use_color_copy {
+            env_logger::WriteStyle::Always
+        } else {
+            env_logger::WriteStyle::Never
+        });
+
         builder.format(move |buf, record| {
             let level_str = record.level().as_str();
             let formatted_level = format_level(level_str, use_color_copy);
@@ -111,4 +150,72 @@ pub fn init_once() {
         // Initialize the logger
         let _ = builder.try_init();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_style_always_forces_color() {
+        assert!(should_use_color(Some("always"), None, false));
+        // An explicit request wins over NO_COLOR.
+        assert!(should_use_color(Some("always"), Some("1"), false));
+    }
+
+    #[test]
+    fn test_style_never_suppresses_color() {
+        assert!(!should_use_color(Some("never"), None, true));
+    }
+
+    #[test]
+    fn test_style_auto_follows_tty() {
+        assert!(should_use_color(Some("auto"), None, true));
+        assert!(!should_use_color(Some("auto"), None, false));
+    }
+
+    #[test]
+    fn test_unset_style_defaults_to_auto() {
+        assert!(should_use_color(None, None, true));
+        assert!(!should_use_color(None, None, false));
+    }
+
+    #[test]
+    fn test_unrecognized_style_falls_back_to_auto() {
+        assert!(should_use_color(Some("purple"), None, true));
+        assert!(!should_use_color(Some("purple"), None, false));
+    }
+
+    #[test]
+    fn test_style_is_case_and_space_insensitive() {
+        assert!(should_use_color(Some("ALWAYS"), None, false));
+        assert!(!should_use_color(Some("  Never  "), None, true));
+    }
+
+    #[test]
+    fn test_no_color_suppresses_under_auto() {
+        assert!(!should_use_color(None, Some("1"), true));
+        // Per no-color.org an empty value does not count as set.
+        assert!(should_use_color(None, Some(""), true));
+        // Any non-empty value counts, including "0".
+        assert!(!should_use_color(None, Some("0"), true));
+    }
+
+    #[test]
+    fn test_format_level_colors_only_when_enabled() {
+        assert_eq!(format_level("info", false), "INFO");
+        assert!(format_level("info", true).contains(colors::INFO));
+        assert!(format_level("info", true).contains(colors::RESET));
+    }
+
+    #[test]
+    fn test_format_level_renders_warn_as_warning() {
+        assert_eq!(format_level("warn", false), "WARNING");
+    }
+
+    #[test]
+    fn test_run_rejects_unknown_level() {
+        let err = run("shout", &["hi".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("unrecognized log level"));
+    }
 }

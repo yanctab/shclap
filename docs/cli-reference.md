@@ -134,6 +134,7 @@ shclap log <LEVEL> <MESSAGE...>
 
 - `SHCLAP_LOG` — Minimum log level to display (default: `info`; set to `off` to silence)
 - `SHCLAP_LOG_STYLE` — Color style: `auto` (default), `always`, or `never`
+- `NO_COLOR` — When non-empty, suppresses color under `auto` (see https://no-color.org/); `SHCLAP_LOG_STYLE=always` overrides it
 
 **Example:**
 
