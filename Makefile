@@ -6,7 +6,7 @@ INSTALL_PATH := /usr/local/bin
 MUSL_TARGET := x86_64-unknown-linux-musl
 RUST_VERSION := 1.85.0
 
-.PHONY: help setup-build-env build release test unit-test integration-test fmt fmt-check lint audit check install uninstall clean deb install-deb uninstall-deb coverage tag-release
+.PHONY: help setup-build-env build release test unit-test integration-test integration-test-release fmt fmt-check lint audit check install uninstall clean deb install-deb uninstall-deb coverage tag-release
 
 .DEFAULT_GOAL := help
 
@@ -86,9 +86,13 @@ test: unit-test integration-test
 unit-test:
 	$(CARGO) test
 
-## integration-test - Run shell integration tests
+## integration-test - Run shell integration tests against the debug build
 integration-test: build
-	./tests/integration.sh
+	SHCLAP_BIN=./target/debug/$(BINARY_NAME) ./tests/integration.sh
+
+## integration-test-release - Run shell integration tests against the musl release build
+integration-test-release: release
+	SHCLAP_BIN=./target/$(MUSL_TARGET)/release/$(BINARY_NAME) ./tests/integration.sh
 
 ## fmt - Format code with rustfmt
 fmt:

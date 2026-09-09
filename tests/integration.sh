@@ -22,8 +22,19 @@ TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
 
-# Find the shclap binary
-if [[ -x "./target/x86_64-unknown-linux-musl/release/shclap" ]]; then
+# Find the shclap binary.
+#
+# SHCLAP_BIN wins, because discovery alone is a trap: this used to prefer the
+# musl release build whenever one existed, so `make integration-test` — which
+# builds the debug binary — silently tested whatever release binary happened to
+# be lying around, however old. The Makefile now names the binary explicitly.
+if [[ -n "${SHCLAP_BIN:-}" ]]; then
+    if [[ ! -x "$SHCLAP_BIN" ]]; then
+        echo -e "${RED}Error: SHCLAP_BIN is set to '$SHCLAP_BIN', which is not executable.${NC}"
+        exit 1
+    fi
+    SHCLAP="$SHCLAP_BIN"
+elif [[ -x "./target/x86_64-unknown-linux-musl/release/shclap" ]]; then
     SHCLAP="./target/x86_64-unknown-linux-musl/release/shclap"
 elif [[ -x "./target/release/shclap" ]]; then
     SHCLAP="./target/release/shclap"
@@ -2194,6 +2205,46 @@ else
 fi
 
 rm -rf "$BZX_TMPDIR"
+
+section "26. Help Rendering Consistency"
+
+# `shclap help` and the built-in --help must render identically. They are two
+# entry points onto one command builder; they previously had separate copies of
+# it that agreed only by coincidence, so this is the invariant that would have
+# caught the two drifting apart.
+run_test
+HELP_CONSISTENCY_FAILURES=""
+HELP_CONFIGS=(
+  '{"name":"t","description":"d","version":"1.0","args":[{"name":"out","short":"o","type":"option","help":"file"}]}'
+  '{"name":"t","args":[{"name":"v","short":"v","type":"flag","help":"loud"}]}'
+  '{"name":"t","args":[{"name":"input","type":"positional","required":true,"help":"in"}]}'
+  '{"schema_version":2,"name":"t","args":[{"name":"fmt","short":"f","type":"option","choices":["json","yaml"]}]}'
+  '{"schema_version":2,"name":"t","args":[{"name":"n","type":"option","value_type":"int"}]}'
+  '{"schema_version":2,"name":"t","description":"subs","subcommands":[{"name":"init","help":"init it"}]}'
+)
+for HC in "${HELP_CONFIGS[@]}"; do
+    VIA_SUB=$("$SHCLAP" help --config "$HC" 2>&1)
+    HP=$("$SHCLAP" parse --config "$HC" --script "$0" -- --help 2>&1)
+    VIA_FLAG=$(bash -c "source '$HP'" 2>&1)
+    [[ "$VIA_SUB" == "$VIA_FLAG" ]] || HELP_CONSISTENCY_FAILURES="$HELP_CONSISTENCY_FAILURES|$HC"
+done
+if [[ -z "$HELP_CONSISTENCY_FAILURES" ]]; then
+    pass "shclap help and --help render identically across configs"
+else
+    fail "Help consistency" "identical output" "differed for:$HELP_CONSISTENCY_FAILURES"
+fi
+
+# Same for version, which shares the same command.
+run_test
+VER_CONFIG='{"name":"myapp","version":"2.5.0"}'
+VER_SUB=$("$SHCLAP" version --config "$VER_CONFIG" 2>&1)
+VP=$("$SHCLAP" parse --config "$VER_CONFIG" --script "$0" -- --version 2>&1)
+VER_FLAG=$(bash -c "source '$VP'" 2>&1)
+if [[ "$VER_SUB" == "$VER_FLAG" ]]; then
+    pass "shclap version and --version render identically"
+else
+    fail "Version consistency" "identical output" "sub=[$VER_SUB] flag=[$VER_FLAG]"
+fi
 
 #
 # Summary
