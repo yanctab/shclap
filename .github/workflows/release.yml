@@ -30,7 +30,7 @@ jobs:
         run: cargo binstall cargo-deb --no-confirm
 
       - name: Cache cargo registry and target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
