@@ -5,6 +5,7 @@
 //! and outputting parsed values as shell export statements.
 
 pub mod collect;
+pub mod command;
 pub mod config;
 pub mod container;
 pub mod expand;

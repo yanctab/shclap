@@ -89,8 +89,5 @@ jobs:
       - name: Run unit tests
         run: make unit-test
 
-      - name: Build release for integration tests
-        run: make release
-
-      - name: Run integration tests
-        run: make integration-test
+      - name: Run integration tests against the release build
+        run: make integration-test-release
