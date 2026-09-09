@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Dependencies are pinned with "=" in Cargo.toml, so security patches only
+  # land when someone bumps them deliberately. These PRs are that prompt.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci

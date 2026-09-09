@@ -1679,16 +1679,50 @@ else
 fi
 rm -rf "$COLLECT_TMPDIR" "$OUTPUT_DIR" "$CONFIG_FILE"
 
-# Test: Neither --config nor --config-file exits non-zero
+# Test: Neither --config nor --config-file reports on stderr and exits 2
+#
+# This previously asserted that collect emitted a sourceable error-file path,
+# which was the parse contract leaking into collect: stdout there carries the
+# output path or the archive itself, and the run exited 0 despite failing.
 run_test
 OUTPUT_DIR=$(mktemp -d)
-ERROR_FILE=$("$SHCLAP" collect --out "$OUTPUT_DIR" --type dir 2>&1)
-if [[ -f "$ERROR_FILE" ]] && grep -q "either --config or --config-file must be supplied" "$ERROR_FILE"; then
-    pass "Neither --config nor --config-file exits non-zero"
+COLLECT_STDOUT=$("$SHCLAP" collect --out "$OUTPUT_DIR" --type dir 2>"$OUTPUT_DIR/err") && RC=0 || RC=$?
+if [[ "$RC" -eq 2 ]] \
+   && [[ -z "$COLLECT_STDOUT" ]] \
+   && grep -q "either --config or --config-file must be supplied" "$OUTPUT_DIR/err"; then
+    pass "Missing config reports on stderr and exits 2"
 else
-    fail "Missing config requirement" "error file with config message" "got $ERROR_FILE"
+    fail "Missing config requirement" "rc=2, empty stdout, stderr message" \
+         "rc=$RC stdout=[$COLLECT_STDOUT] stderr=[$(cat "$OUTPUT_DIR/err" 2>/dev/null)]"
 fi
-rm -rf "$OUTPUT_DIR" "$ERROR_FILE" 2>/dev/null || true
+rm -rf "$OUTPUT_DIR"
+
+# Test: --archive-format is rejected with --type dir instead of being ignored
+run_test
+OUTPUT_DIR=$(mktemp -d)
+AF_STDOUT=$("$SHCLAP" collect --config '{"bundles":{}}' --type dir --archive-format zip --out "$OUTPUT_DIR" 2>"$OUTPUT_DIR/err") && RC=0 || RC=$?
+if [[ "$RC" -eq 2 ]] \
+   && [[ -z "$AF_STDOUT" ]] \
+   && grep -q "archive-format is only valid with --type archive" "$OUTPUT_DIR/err"; then
+    pass "--archive-format with --type dir is rejected"
+else
+    fail "archive-format with dir" "rc=2 and stderr message" \
+         "rc=$RC stdout=[$AF_STDOUT] stderr=[$(cat "$OUTPUT_DIR/err" 2>/dev/null)]"
+fi
+rm -rf "$OUTPUT_DIR"
+
+# Test: --archive-format still accepted with --type archive
+run_test
+AF_TMPDIR=$(mktemp -d)
+echo "content" > "$AF_TMPDIR/f.txt"
+AF_CONFIG="{\"bundles\":{\"b\":[{\"from\":\"$AF_TMPDIR/f.txt\",\"to\":\"f.txt\"}]}}"
+if "$SHCLAP" collect --config "$AF_CONFIG" --type archive --archive-format tar --out "$AF_TMPDIR/o.tar" >/dev/null 2>&1 \
+   && tar -tf "$AF_TMPDIR/o.tar" 2>/dev/null | grep -q "f.txt"; then
+    pass "--archive-format still works with --type archive"
+else
+    fail "archive-format with archive" "archive created" "command failed"
+fi
+rm -rf "$AF_TMPDIR"
 
 # Test: Env var ${BUILD_DIR}/bin/foo with BUILD_DIR set resolves and copies correctly
 run_test

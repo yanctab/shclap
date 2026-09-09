@@ -6,7 +6,7 @@ INSTALL_PATH := /usr/local/bin
 MUSL_TARGET := x86_64-unknown-linux-musl
 RUST_VERSION := 1.85.0
 
-.PHONY: help setup-build-env build release test unit-test integration-test fmt fmt-check lint check install uninstall clean deb install-deb uninstall-deb coverage tag-release
+.PHONY: help setup-build-env build release test unit-test integration-test fmt fmt-check lint audit check install uninstall clean deb install-deb uninstall-deb coverage tag-release
 
 .DEFAULT_GOAL := help
 
@@ -101,6 +101,10 @@ fmt-check:
 ## lint - Run clippy linter (including tests and other targets)
 lint:
 	$(CARGO) clippy --all-targets --all-features -- -D warnings
+
+## audit - Check dependencies against the RustSec advisory database
+audit:
+	$(CARGO) audit
 
 ## check - Run fmt, lint, and test
 check: fmt lint test

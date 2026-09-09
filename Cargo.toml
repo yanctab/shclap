@@ -17,17 +17,22 @@ clap = { version = "=4.4.18", features = ["derive", "string", "env"] }
 serde = { version = "=1.0.196", features = ["derive"] }
 serde_json = "=1.0.113"
 tempfile = "=3.10.0"
-anyhow = "=1.0.79"
+anyhow = "=1.0.100"
 thiserror = "=1.0.56"
 log = "=0.4.21"
 env_logger = "=0.11.3"
 uzers = "=0.12.0"
 glob = "=0.3.1"
-tar = "=0.4.40"
-flate2 = "=1.0.28"
+tar = "=0.4.45"
+flate2 = "=1.1.5"
 bzip2 = "=0.6.1"
 liblzma = "=0.4.8"
-zip = "=0.6.6"
+# Default features off: shclap only ever writes CompressionMethod::Stored, so
+# zip's deflate/bzip2/zstd backends are unused, and its default `time`
+# dependency pulled in a version with a DoS advisory (RUSTSEC-2026-0009) that
+# zip 0.6 pins too tightly to update. Re-enable if a compressed zip is ever
+# wanted.
+zip = { version = "=0.6.6", default-features = false }
 indexmap = { version = "=2.0.0", features = ["serde"] }
 
 [profile.release]

@@ -116,33 +116,6 @@ pub fn generate_output_string(
     output
 }
 
-/// Generate output using legacy HashMap<String, String> format.
-/// For backward compatibility with existing code.
-pub fn generate_output_legacy(parsed: &HashMap<String, String>, prefix: &str) -> Result<PathBuf> {
-    let content = generate_output_string_legacy(parsed, prefix);
-    write_temp_file(&content)
-}
-
-/// Generate the output content as a string using legacy format (for testing).
-pub fn generate_output_string_legacy(parsed: &HashMap<String, String>, prefix: &str) -> String {
-    let mut output = String::new();
-
-    // Prepend log helper functions
-    output.push_str(LOG_HELPERS);
-
-    // Sort keys for deterministic output
-    let mut keys: Vec<_> = parsed.keys().collect();
-    keys.sort();
-
-    for name in keys {
-        let value = &parsed[name];
-        let var_name = format!("{}{}", prefix, to_shell_var_name(name));
-        output.push_str(&format!("export {}={}\n", var_name, single_quote(value)));
-    }
-
-    output
-}
-
 /// Generate an error output file.
 ///
 /// When sourced, the file will print the error message to stderr and exit 1.
@@ -485,10 +458,20 @@ fn write_temp_file(content: &str) -> Result<PathBuf> {
 mod tests {
     use super::*;
 
-    fn make_map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+    /// `generate_output_string` with no subcommand, so the escaping tests read
+    /// as they did against the removed legacy helper.
+    fn generate_output_string_no_subcommand(
+        parsed: &HashMap<String, ParsedValue>,
+        prefix: &str,
+    ) -> String {
+        generate_output_string(parsed, prefix, None)
+    }
+
+    /// Build a single-valued map for the escaping tests below.
+    fn make_map(pairs: &[(&str, &str)]) -> HashMap<String, ParsedValue> {
         pairs
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (k.to_string(), ParsedValue::Single(v.to_string())))
             .collect()
     }
 
@@ -502,7 +485,7 @@ mod tests {
     #[test]
     fn test_basic_output() {
         let parsed = make_map(&[("verbose", "true"), ("output", "file.txt")]);
-        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
+        let output = generate_output_string_no_subcommand(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_OUTPUT='file.txt'"));
         assert!(output.contains("export SHCLAP_VERBOSE='true'"));
@@ -511,7 +494,7 @@ mod tests {
     #[test]
     fn test_escape_dollar() {
         let parsed = make_map(&[("value", "$HOME/path")]);
-        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
+        let output = generate_output_string_no_subcommand(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_VALUE='$HOME/path'"));
     }
@@ -519,7 +502,7 @@ mod tests {
     #[test]
     fn test_escape_backtick() {
         let parsed = make_map(&[("cmd", "`whoami`")]);
-        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
+        let output = generate_output_string_no_subcommand(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_CMD='`whoami`'"));
     }
@@ -527,7 +510,7 @@ mod tests {
     #[test]
     fn test_escape_backslash() {
         let parsed = make_map(&[("path", "C:\\Users\\test")]);
-        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
+        let output = generate_output_string_no_subcommand(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_PATH='C:\\Users\\test'"));
     }
@@ -535,7 +518,7 @@ mod tests {
     #[test]
     fn test_escape_double_quote() {
         let parsed = make_map(&[("msg", "say \"hello\"")]);
-        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
+        let output = generate_output_string_no_subcommand(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_MSG='say \"hello\"'"));
     }
@@ -543,7 +526,7 @@ mod tests {
     #[test]
     fn test_escape_exclamation() {
         let parsed = make_map(&[("msg", "hello!")]);
-        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
+        let output = generate_output_string_no_subcommand(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_MSG='hello!'"));
     }
@@ -551,7 +534,7 @@ mod tests {
     #[test]
     fn test_escape_newline() {
         let parsed = make_map(&[("text", "line1\nline2")]);
-        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
+        let output = generate_output_string_no_subcommand(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_TEXT='line1\nline2'"));
     }
@@ -559,7 +542,7 @@ mod tests {
     #[test]
     fn test_custom_prefix() {
         let parsed = make_map(&[("name", "test")]);
-        let output = generate_output_string_legacy(&parsed, "MYAPP_");
+        let output = generate_output_string_no_subcommand(&parsed, "MYAPP_");
 
         assert!(output.contains("export MYAPP_NAME='test'"));
     }
@@ -567,7 +550,7 @@ mod tests {
     #[test]
     fn test_empty_value() {
         let parsed = make_map(&[("empty", "")]);
-        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
+        let output = generate_output_string_no_subcommand(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_EMPTY=''"));
     }
@@ -575,7 +558,7 @@ mod tests {
     #[test]
     fn test_value_with_spaces() {
         let parsed = make_map(&[("msg", "hello world")]);
-        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
+        let output = generate_output_string_no_subcommand(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_MSG='hello world'"));
     }
@@ -583,7 +566,7 @@ mod tests {
     #[test]
     fn test_hyphenated_name() {
         let parsed = make_map(&[("my-option", "value")]);
-        let output = generate_output_string_legacy(&parsed, "SHCLAP_");
+        let output = generate_output_string_no_subcommand(&parsed, "SHCLAP_");
 
         assert!(output.contains("export SHCLAP_MY_OPTION='value'"));
     }
@@ -605,7 +588,7 @@ mod tests {
     #[test]
     fn test_complex_escaping() {
         let parsed = make_map(&[("complex", "$var \"quoted\" `cmd` \\path!")]);
-        let output = generate_output_string_legacy(&parsed, "TEST_");
+        let output = generate_output_string_no_subcommand(&parsed, "TEST_");
 
         assert!(output.contains("export TEST_COMPLEX='$var \"quoted\" `cmd` \\path!'"));
     }

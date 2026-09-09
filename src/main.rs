@@ -258,13 +258,20 @@ fn main() -> Result<()> {
             archive_format,
             bundle,
         } => {
+            // --archive-format only means anything when producing an archive.
+            // It used to be accepted and silently discarded with --type dir.
+            if archive_format.is_some() && r#type == shclap::collect::OutputType::Dir {
+                collect_arg_error("--archive-format is only valid with --type archive");
+            }
+
             // Validate that exactly one of --config or --config-file is supplied
             let config_json = match (&config, &config_file) {
                 (Some(_), Some(_)) => {
-                    return output_error("--config and --config-file are mutually exclusive");
+                    // Clap's conflicts_with normally catches this first.
+                    collect_arg_error("--config and --config-file are mutually exclusive");
                 }
                 (None, None) => {
-                    return output_error("either --config or --config-file must be supplied");
+                    collect_arg_error("either --config or --config-file must be supplied");
                 }
                 (Some(c), None) => c.clone(),
                 (None, Some(f)) => {
@@ -315,6 +322,20 @@ fn load_config(config: &str, name: Option<&str>) -> Result<(Config, String), Str
     };
 
     Ok((cfg, effective_name))
+}
+
+/// Report a `collect` argument error the way Clap reports its own: a message on
+/// stderr and exit 2, which is what docs/collect.md documents for invalid
+/// arguments.
+///
+/// `output_error` must not be used here. It writes a sourceable file and prints
+/// its path on stdout, which is the `parse` contract; on `collect`, stdout
+/// carries the output path or the archive bytes themselves, so routing an error
+/// through it both corrupts that channel and exits 0, leaving callers to treat a
+/// failed run as success.
+fn collect_arg_error(message: &str) -> ! {
+    eprintln!("shclap: {}", message);
+    std::process::exit(2);
 }
 
 /// Output an error file path and return Ok.
