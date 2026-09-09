@@ -50,24 +50,6 @@ pub enum ParseOutcome {
     Error(String),
 }
 
-/// Result of parsing arguments (legacy type alias for compatibility).
-pub type ParseResult = Result<HashMap<String, String>, ParseError>;
-
-/// Errors that can occur during argument parsing.
-/// Kept for API compatibility but primarily used for internal errors.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParseError {
-    pub message: String,
-}
-
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for ParseError {}
-
 /// Build a Clap Command from a Config with an effective name.
 fn build_command(config: &Config, effective_name: &str) -> Command {
     let mut cmd = Command::new(effective_name.to_string())
